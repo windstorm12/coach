@@ -3,6 +3,7 @@
 
 import { useState } from 'react';
 import { supabase } from '@/lib/supabase';
+import { AuthError } from '@supabase/supabase-js';
 import { colors } from '@/app/page';
 
 export default function Auth() {
@@ -26,8 +27,9 @@ export default function Auth() {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
       }
-    } catch (error: any) {
-      setMessage(error.message || 'An error occurred');
+    } catch (error) {
+      const authError = error as AuthError;
+      setMessage(authError.message || 'An error occurred');
     } finally {
       setLoading(false);
     }
@@ -119,7 +121,7 @@ export default function Auth() {
           marginTop: 12,
         }}
       >
-        {isSignUp ? 'Already have an account? Sign in' : "Don't have an account? Sign up"}
+        {isSignUp ? 'Already have an account? Sign in' : "Don&apos;t have an account? Sign up"}
       </button>
     </div>
   );

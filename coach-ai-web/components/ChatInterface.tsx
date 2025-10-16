@@ -1,15 +1,24 @@
 // components/ChatInterface.tsx
 'use client';
-import { getClarifyingQuestions, generatePlan, continueConversation } from '@/lib/api';
+import { generatePlan, continueConversation } from '@/lib/api';
 import { useEffect, useRef, useState } from 'react';
 import { Message, Plan, QAPair, SavedPlan } from '@/types';
 import { colors } from '@/app/page';
 import PlanTable from './PlanTable';
 
 type ChatState = 'idle' | 'asking-questions' | 'plan-ready';
+
 interface Props {
   onPlanGenerated: (plan: SavedPlan) => void;
   loadedPlan?: SavedPlan | null;
+}
+
+// Type for extended plan with optional assessment fields
+interface ExtendedPlan extends Plan {
+  realistic_hours_needed?: number | string;
+  adjustment_explanation?: string;
+  feasibility_ratio?: number | null;
+  timeline_adjusted?: boolean;
 }
 
 export default function ChatInterface({ onPlanGenerated, loadedPlan }: Props) {
@@ -72,20 +81,23 @@ export default function ChatInterface({ onPlanGenerated, loadedPlan }: Props) {
   };
 
   // Helper: normalize/check fields safely
-  const isImpossibleGoal = (p: any) => {
+  const isImpossibleGoal = (p: ExtendedPlan) => {
     const v = p?.realistic_hours_needed;
     if (!v) return false;
     if (typeof v === 'string' && v.toUpperCase() === 'IMPOSSIBLE') return true;
     return false;
   };
-  const hasNoSteps = (p: any) => !p?.steps || !Array.isArray(p.steps) || p.steps.length === 0;
-  const getRatio = (p: any): number | null => {
+  
+  const hasNoSteps = (p: ExtendedPlan) => !p?.steps || !Array.isArray(p.steps) || p.steps.length === 0;
+  
+  const getRatio = (p: ExtendedPlan): number | null => {
     const r = p?.feasibility_ratio;
     if (r === null || r === undefined) return null;
     const n = Number(r);
     return Number.isFinite(n) ? n : null;
   };
-  const wasAdjusted = (p: any) => p?.timeline_adjusted === true || Boolean(p?.adjustment_explanation);
+  
+  const wasAdjusted = (p: ExtendedPlan) => p?.timeline_adjusted === true || Boolean(p?.adjustment_explanation);
 
   const send = async () => {
     if (!input.trim() || isLoading) return;
@@ -122,7 +134,7 @@ export default function ChatInterface({ onPlanGenerated, loadedPlan }: Props) {
           setPlan(p);
           setState('plan-ready');
           
-          const msg = buildPlanMessage(p);
+          const msg = buildPlanMessage(p as ExtendedPlan);
           addMsg('assistant', msg);
           
           onPlanGenerated({
@@ -156,7 +168,7 @@ export default function ChatInterface({ onPlanGenerated, loadedPlan }: Props) {
             setPlan(p);
             setState('plan-ready');
             
-            const msg = buildPlanMessage(p);
+            const msg = buildPlanMessage(p as ExtendedPlan);
             addMsg('assistant', msg);
             
             onPlanGenerated({
@@ -188,8 +200,8 @@ export default function ChatInterface({ onPlanGenerated, loadedPlan }: Props) {
     }
   };
 
-  // Helper function to build plan message (add this before send())
-  const buildPlanMessage = (p: Plan): string => {
+  // Helper function to build plan message
+  const buildPlanMessage = (p: ExtendedPlan): string => {
     let msg = '';
     
     if (p.original_goal && p.goal_changed_reason) {
@@ -199,7 +211,7 @@ export default function ChatInterface({ onPlanGenerated, loadedPlan }: Props) {
       const ratio = getRatio(p);
       const adjusted = wasAdjusted(p);
       const noSteps = hasNoSteps(p);
-      const reason = (p as any)?.adjustment_explanation || '';
+      const reason = p?.adjustment_explanation || '';
 
       if (impossible || noSteps) {
         msg =
@@ -225,6 +237,7 @@ export default function ChatInterface({ onPlanGenerated, loadedPlan }: Props) {
     
     return msg;
   };
+
   const onKey = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -249,10 +262,10 @@ export default function ChatInterface({ onPlanGenerated, loadedPlan }: Props) {
         {messages.length === 0 && (
           <div style={{ textAlign: 'center', marginTop: 80, color: colors.textSecondary }}>
             <h2 style={{ fontSize: 24, marginBottom: 8, color: colors.textPrimary }}>
-              What's your goal?
+              What&apos;s your goal?
             </h2>
             <p style={{ fontSize: 16, marginBottom: 16 }}>
-              Tell me what you want to achieve and I'll create a personalized plan.
+              Tell me what you want to achieve and I&apos;ll create a personalized plan.
             </p>
             <div style={{ display: 'flex', justifyContent: 'center', gap: 12, flexWrap: 'wrap' }}>
               {['Learn a skill', 'Start business', 'Get fit', 'Write book'].map((suggestion) => (

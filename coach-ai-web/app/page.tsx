@@ -5,6 +5,7 @@ import React, { useState, useEffect } from 'react';
 import { SavedPlan } from '@/types';
 import { getAllPlans, savePlan, deletePlan } from '@/lib/storage';
 import { supabase } from '@/lib/supabase';
+import { User } from '@supabase/supabase-js';
 import Sidebar from '@/components/Sidebar';
 import ChatInterface from '@/components/ChatInterface';
 import Auth from '@/components/Auth';
@@ -25,7 +26,7 @@ export const colors = {
 } as const;
 
 export default function Home() {
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [plans, setPlans] = useState<SavedPlan[]>([]);
   const [currentPlanId, setCurrentPlanId] = useState<string | null>(null);
