@@ -1,0 +1,2507 @@
+FILE AGGREGATION REPORT
+Source Directory: D:\Janmejay\Python\Task_decomposer
+================================================================================
+
+================================================================================
+FILE: FileExtracter.py
+FULL PATH: D:\Janmejay\Python\Task_decomposer\FileExtracter.py
+================================================================================
+import os
+import sys
+from pathlib import Path
+from typing import Set, List
+import argparse
+
+def get_file_content(file_path: Path, encoding_list: List[str] = ['utf-8', 'latin-1', 'cp1252']) -> str:
+    """
+    Try to read file content with multiple encodings.
+    Returns content or error message.
+    """
+    for encoding in encoding_list:
+        try:
+            with open(file_path, 'r', encoding=encoding) as f:
+                return f.read()
+        except UnicodeDecodeError:
+            continue
+        except Exception as e:
+            return f"[Error reading file: {str(e)}]"
+    
+    # If text reading fails, note it's likely binary
+    return "[Binary file or unreadable encoding - skipped]"
+
+def should_ignore_path(path: Path, ignore_folders: Set[str], ignore_patterns: Set[str], ignore_files: Set[str]) -> bool:
+    """
+    Check if path should be ignored based on folder names, patterns, or specific filenames.
+    """
+    path_parts = path.parts
+    
+    # Check if specific file should be ignored
+    if path.name in ignore_files:
+        return True
+    
+    # Check exact folder names
+    for part in path_parts:
+        if part in ignore_folders:
+            return True
+    
+    # Check patterns (like .git, __pycache__, etc.)
+    for pattern in ignore_patterns:
+        if pattern.startswith('*') and pattern.endswith('*'):
+            # Contains pattern
+            check = pattern[1:-1]
+            if any(check in part for part in path_parts):
+                return True
+        elif pattern.startswith('*'):
+            # Ends with pattern
+            check = pattern[1:]
+            if any(part.endswith(check) for part in path_parts):
+                return True
+        elif pattern.endswith('*'):
+            # Starts with pattern
+            check = pattern[:-1]
+            if any(part.startswith(check) for part in path_parts):
+                return True
+        else:
+            # Exact match
+            if pattern in path_parts:
+                return True
+    
+    return False
+
+def aggregate_files(
+    root_folder: str,
+    output_file: str,
+    ignore_folders: Set[str] = None,
+    ignore_extensions: Set[str] = None,
+    ignore_files: Set[str] = None,
+    max_file_size_mb: float = 10
+) -> None:
+    """
+    Main function to aggregate all files into a single text file.
+    """
+    
+    if ignore_folders is None:
+        ignore_folders = set()
+    
+    if ignore_extensions is None:
+        ignore_extensions = set()
+    
+    if ignore_files is None:
+        ignore_files = set()
+    
+    root_path = Path(root_folder).resolve()
+    
+    if not root_path.exists():
+        print(f"Error: Folder '{root_folder}' does not exist!")
+        return
+    
+    if not root_path.is_dir():
+        print(f"Error: '{root_folder}' is not a directory!")
+        return
+    
+    processed_count = 0
+    skipped_count = 0
+    error_count = 0
+    
+    print(f"Starting file aggregation from: {root_path}")
+    print(f"Output will be saved to: {output_file}")
+    print(f"Ignoring folders: {ignore_folders if ignore_folders else 'None'}")
+    print(f"Ignoring extensions: {ignore_extensions if ignore_extensions else 'None'}")
+    print(f"Ignoring files: {ignore_files if ignore_files else 'None'}")
+    print("-" * 80)
+    
+    with open(output_file, 'w', encoding='utf-8') as outfile:
+        outfile.write(f"FILE AGGREGATION REPORT\n")
+        outfile.write(f"Source Directory: {root_path}\n")
+        outfile.write(f"=" * 80 + "\n\n")
+        
+        for file_path in root_path.rglob('*'):
+            # Skip directories
+            if file_path.is_dir():
+                continue
+            
+            # Check if path should be ignored
+            if should_ignore_path(file_path, ignore_folders, set(), ignore_files):
+                skipped_count += 1
+                continue
+            
+            # Check file extension
+            if ignore_extensions and file_path.suffix in ignore_extensions:
+                skipped_count += 1
+                continue
+            
+            # Check file size
+            try:
+                file_size_mb = file_path.stat().st_size / (1024 * 1024)
+                if file_size_mb > max_file_size_mb:
+                    print(f"Skipping large file ({file_size_mb:.2f} MB): {file_path}")
+                    skipped_count += 1
+                    continue
+            except:
+                pass
+            
+            # Process the file
+            relative_path = file_path.relative_to(root_path)
+            
+            print(f"Processing: {relative_path}")
+            
+            outfile.write(f"{'=' * 80}\n")
+            outfile.write(f"FILE: {relative_path}\n")
+            outfile.write(f"FULL PATH: {file_path}\n")
+            outfile.write(f"{'=' * 80}\n")
+            
+            content = get_file_content(file_path)
+            
+            if "[Error" in content or "[Binary" in content:
+                error_count += 1
+                outfile.write(f"{content}\n")
+            else:
+                outfile.write(f"{content}\n")
+                processed_count += 1
+            
+            outfile.write(f"\n{'=' * 80}\n\n")
+    
+    print("-" * 80)
+    print(f"Aggregation complete!")
+    print(f"Files processed successfully: {processed_count}")
+    print(f"Files skipped (ignored paths/extensions/files): {skipped_count}")
+    print(f"Files with errors or binary: {error_count}")
+    print(f"Output saved to: {output_file}")
+
+def main():
+    """
+    Interactive mode for the script.
+    """
+    print("FILE AGGREGATOR TOOL")
+    print("=" * 80)
+    
+    # Get root folder
+    root_folder = input("Enter the folder path to scan (or '.' for current directory): ").strip()
+    if not root_folder:
+        root_folder = "."
+    
+    # Get output file name
+    output_file = input("Enter output file name (default: 'aggregated_files.txt'): ").strip()
+    if not output_file:
+        output_file = "aggregated_files.txt"
+    
+    # Get folders to ignore
+    print("\nEnter folder names to ignore (one per line, empty line to finish):")
+    print("Examples: node_modules, .git, __pycache__, dist, build")
+    
+    ignore_folders = set()
+    while True:
+        folder = input("> ").strip()
+        if not folder:
+            break
+        ignore_folders.add(folder)
+    
+    # Get specific files to ignore
+    print("\nEnter specific file names to ignore (one per line, empty line to finish):")
+    print("Examples: package-lock.json, .DS_Store, favicon.ico")
+    
+    ignore_files = set()
+    while True:
+        filename = input("> ").strip()
+        if not filename:
+            break
+        ignore_files.add(filename)
+    
+    # Get file extensions to ignore
+    print("\nEnter file extensions to ignore (e.g., .pyc, .exe, .jpg) (one per line, empty line to finish):")
+    
+    ignore_extensions = set()
+    while True:
+        ext = input("> ").strip()
+        if not ext:
+            break
+        if not ext.startswith('.'):
+            ext = '.' + ext
+        ignore_extensions.add(ext)
+    
+    # Get max file size
+    max_size_input = input("\nMax file size in MB to include (default: 10): ").strip()
+    try:
+        max_file_size = float(max_size_input) if max_size_input else 10
+    except ValueError:
+        max_file_size = 10
+    
+    print("\n" + "=" * 80)
+    
+    # Run aggregation
+    aggregate_files(
+        root_folder=root_folder,
+        output_file=output_file,
+        ignore_folders=ignore_folders,
+        ignore_extensions=ignore_extensions,
+        ignore_files=ignore_files,
+        max_file_size_mb=max_file_size
+    )
+
+if __name__ == "__main__":
+    # You can also use it directly without interaction:
+    # aggregate_files(
+    #     root_folder="./my_project",
+    #     output_file="output.txt",
+    #     ignore_folders={'node_modules', '.git', '__pycache__', 'dist', 'build'},
+    #     ignore_extensions={'.pyc', '.jpg', '.png', '.pdf'},
+    #     ignore_files={'package-lock.json', '.DS_Store', 'favicon.ico'}
+    # )
+    
+    main()
+
+================================================================================
+
+================================================================================
+FILE: output2.txt
+FULL PATH: D:\Janmejay\Python\Task_decomposer\output2.txt
+================================================================================
+FILE AGGREGATION REPORT
+Source Directory: D:\Janmejay\Python\Task_decomposer
+================================================================================
+
+================================================================================
+FILE: FileExtracter.py
+FULL PATH: D:\Janmejay\Python\Task_decomposer\FileExtracter.py
+================================================================================
+import os
+import sys
+from pathlib import Path
+from typing import Set, List
+import argparse
+
+def get_file_content(file_path: Path, encoding_list: List[str] = ['utf-8', 'latin-1', 'cp1252']) -> str:
+    """
+    Try to read file content with multiple encodings.
+    Returns content or error message.
+    """
+    for encoding in encoding_list:
+        try:
+            with open(file_path, 'r', encoding=encoding) as f:
+                return f.read()
+        except UnicodeDecodeError:
+            continue
+        except Exception as e:
+            return f"[Error reading file: {str(e)}]"
+    
+    # If text reading fails, note it's likely binary
+    return "[Binary file or unreadable encoding - skipped]"
+
+def should_ignore_path(path: Path, ignore_folders: Set[str], ignore_patterns: Set[str], ignore_files: Set[str]) -> bool:
+    """
+    Check if path should be ignored based on folder names, patterns, or specific filenames.
+    """
+    path_parts = path.parts
+    
+    # Check if specific file should be ignored
+    if path.name in ignore_files:
+        return True
+    
+    # Check exact folder names
+    for part in path_parts:
+        if part in ignore_folders:
+            return True
+    
+    # Check patterns (like .git, __pycache__, etc.)
+    for pattern in ignore_patterns:
+        if pattern.startswith('*') and pattern.endswith('*'):
+            # Contains pattern
+            check = pattern[1:-1]
+            if any(check in part for part in path_parts):
+                return True
+        elif pattern.startswith('*'):
+            # Ends with pattern
+            check = pattern[1:]
+            if any(part.endswith(check) for part in path_parts):
+                return True
+        elif pattern.endswith('*'):
+            # Starts with pattern
+            check = pattern[:-1]
+            if any(part.startswith(check) for part in path_parts):
+                return True
+        else:
+            # Exact match
+            if pattern in path_parts:
+                return True
+    
+    return False
+
+def aggregate_files(
+    root_folder: str,
+    output_file: str,
+    ignore_folders: Set[str] = None,
+    ignore_extensions: Set[str] = None,
+    ignore_files: Set[str] = None,
+    max_file_size_mb: float = 10
+) -> None:
+    """
+    Main function to aggregate all files into a single text file.
+    """
+    
+    if ignore_folders is None:
+        ignore_folders = set()
+    
+    if ignore_extensions is None:
+        ignore_extensions = set()
+    
+    if ignore_files is None:
+        ignore_files = set()
+    
+    root_path = Path(root_folder).resolve()
+    
+    if not root_path.exists():
+        print(f"Error: Folder '{root_folder}' does not exist!")
+        return
+    
+    if not root_path.is_dir():
+        print(f"Error: '{root_folder}' is not a directory!")
+        return
+    
+    processed_count = 0
+    skipped_count = 0
+    error_count = 0
+    
+    print(f"Starting file aggregation from: {root_path}")
+    print(f"Output will be saved to: {output_file}")
+    print(f"Ignoring folders: {ignore_folders if ignore_folders else 'None'}")
+    print(f"Ignoring extensions: {ignore_extensions if ignore_extensions else 'None'}")
+    print(f"Ignoring files: {ignore_files if ignore_files else 'None'}")
+    print("-" * 80)
+    
+    with open(output_file, 'w', encoding='utf-8') as outfile:
+        outfile.write(f"FILE AGGREGATION REPORT\n")
+        outfile.write(f"Source Directory: {root_path}\n")
+        outfile.write(f"=" * 80 + "\n\n")
+        
+        for file_path in root_path.rglob('*'):
+            # Skip directories
+            if file_path.is_dir():
+                continue
+            
+            # Check if path should be ignored
+            if should_ignore_path(file_path, ignore_folders, set(), ignore_files):
+                skipped_count += 1
+                continue
+            
+            # Check file extension
+            if ignore_extensions and file_path.suffix in ignore_extensions:
+                skipped_count += 1
+                continue
+            
+            # Check file size
+            try:
+                file_size_mb = file_path.stat().st_size / (1024 * 1024)
+                if file_size_mb > max_file_size_mb:
+                    print(f"Skipping large file ({file_size_mb:.2f} MB): {file_path}")
+                    skipped_count += 1
+                    continue
+            except:
+                pass
+            
+            # Process the file
+            relative_path = file_path.relative_to(root_path)
+            
+            print(f"Processing: {relative_path}")
+            
+            outfile.write(f"{'=' * 80}\n")
+            outfile.write(f"FILE: {relative_path}\n")
+            outfile.write(f"FULL PATH: {file_path}\n")
+            outfile.write(f"{'=' * 80}\n")
+            
+            content = get_file_content(file_path)
+            
+            if "[Error" in content or "[Binary" in content:
+                error_count += 1
+                outfile.write(f"{content}\n")
+            else:
+                outfile.write(f"{content}\n")
+                processed_count += 1
+            
+            outfile.write(f"\n{'=' * 80}\n\n")
+    
+    print("-" * 80)
+    print(f"Aggregation complete!")
+    print(f"Files processed successfully: {processed_count}")
+    print(f"Files skipped (ignored paths/extensions/files): {skipped_count}")
+    print(f"Files with errors or binary: {error_count}")
+    print(f"Output saved to: {output_file}")
+
+def main():
+    """
+    Interactive mode for the script.
+    """
+    print("FILE AGGREGATOR TOOL")
+    print("=" * 80)
+    
+    # Get root folder
+    root_folder = input("Enter the folder path to scan (or '.' for current directory): ").strip()
+    if not root_folder:
+        root_folder = "."
+    
+    # Get output file name
+    output_file = input("Enter output file name (default: 'aggregated_files.txt'): ").strip()
+    if not output_file:
+        output_file = "aggregated_files.txt"
+    
+    # Get folders to ignore
+    print("\nEnter folder names to ignore (one per line, empty line to finish):")
+    print("Examples: node_modules, .git, __pycache__, dist, build")
+    
+    ignore_folders = set()
+    while True:
+        folder = input("> ").strip()
+        if not folder:
+            break
+        ignore_folders.add(folder)
+    
+    # Get specific files to ignore
+    print("\nEnter specific file names to ignore (one per line, empty line to finish):")
+    print("Examples: package-lock.json, .DS_Store, favicon.ico")
+    
+    ignore_files = set()
+    while True:
+        filename = input("> ").strip()
+        if not filename:
+            break
+        ignore_files.add(filename)
+    
+    # Get file extensions to ignore
+    print("\nEnter file extensions to ignore (e.g., .pyc, .exe, .jpg) (one per line, empty line to finish):")
+    
+    ignore_extensions = set()
+    while True:
+        ext = input("> ").strip()
+        if not ext:
+            break
+        if not ext.startswith('.'):
+            ext = '.' + ext
+        ignore_extensions.add(ext)
+    
+    # Get max file size
+    max_size_input = input("\nMax file size in MB to include (default: 10): ").strip()
+    try:
+        max_file_size = float(max_size_input) if max_size_input else 10
+    except ValueError:
+        max_file_size = 10
+    
+    print("\n" + "=" * 80)
+    
+    # Run aggregation
+    aggregate_files(
+        root_folder=root_folder,
+        output_file=output_file,
+        ignore_folders=ignore_folders,
+        ignore_extensions=ignore_extensions,
+        ignore_files=ignore_files,
+        max_file_size_mb=max_file_size
+    )
+
+if __name__ == "__main__":
+    # You can also use it directly without interaction:
+    # aggregate_files(
+    #     root_folder="./my_project",
+    #     output_file="output.txt",
+    #     ignore_folders={'node_modules', '.git', '__pycache__', 'dist', 'build'},
+    #     ignore_extensions={'.pyc', '.jpg', '.png', '.pdf'},
+    #     ignore_files={'package-lock.json', '.DS_Store', 'favicon.ico'}
+    # )
+    
+    main()
+
+
+================================================================================
+
+================================================================================
+FILE: backend\.env
+FULL PATH: D:\Janmejay\Python\Task_decomposer\backend\.env
+================================================================================
+GEMINI_API_KEY=AIzaSyDPu4VRK2jfhUl-XtC1_4mEDXV58nnmEBU
+
+================================================================================
+
+================================================================================
+FILE: backend\coach.py
+FULL PATH: D:\Janmejay\Python\Task_decomposer\backend\coach.py
+================================================================================
+#!/usr/bin/env python3
+"""
+CoachAI Logic - API Version
+Simplified functions for FastAPI backend
+"""
+
+import os
+import json
+import re
+from datetime import datetime, timedelta
+from typing import Optional
+
+# Setup Gemini
+def setup_gemini():
+    """Initialize Gemini AI model"""
+    try:
+        import google.generativeai as genai
+    except ImportError:
+        raise RuntimeError("Run: pip install google-generativeai")
+    
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        raise RuntimeError("Set GEMINI_API_KEY environment variable")
+    
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel("gemini-2.0-flash-exp")
+    return model
+
+
+# JSON extraction helpers
+def extract_json(text: str):
+    """Extract JSON from potentially messy AI response"""
+    if not text:
+        return None
+    
+    # Remove code fences
+    text = re.sub(r'^\s*```(?:json)?\s*|\s*```\s*$', '', text, flags=re.S)
+    
+    # Try direct parse
+    try:
+        return json.loads(text)
+    except:
+        pass
+    
+    # Try to find JSON object
+    for open_ch, close_ch in [('{', '}'), ('[', ']')]:
+        depth = 0
+        start = None
+        for i, ch in enumerate(text):
+            if ch == open_ch:
+                if depth == 0:
+                    start = i
+                depth += 1
+            elif ch == close_ch and depth:
+                depth -= 1
+                if depth == 0 and start is not None:
+                    try:
+                        return json.loads(text[start:i+1])
+                    except:
+                        pass
+    
+    return None
+
+
+def call_gemini(model, prompt: str, max_tokens: int = 4096) -> Optional[dict]:
+    """Call Gemini and return JSON response"""
+    
+    # Try with JSON mime type
+    try:
+        response = model.generate_content(
+            prompt,
+            generation_config={
+                "response_mime_type": "application/json",
+                "max_output_tokens": max_tokens
+            }
+        )
+        
+        text = response.text if hasattr(response, 'text') else ""
+        data = extract_json(text)
+        if data:
+            return data
+    except Exception as e:
+        print(f"Gemini error: {e}")
+    
+    # Try without mime type
+    try:
+        response = model.generate_content(
+            prompt,
+            generation_config={"max_output_tokens": max_tokens}
+        )
+        
+        text = response.text if hasattr(response, 'text') else ""
+        data = extract_json(text)
+        if data:
+            return data
+    except Exception as e:
+        print(f"Gemini error: {e}")
+    
+    return None
+
+
+# Main API functions
+def get_clarifying_questions(goal: str) -> dict:
+    """
+    Get 3 clarifying questions for the goal.
+    Returns: {"questions": ["Q1", "Q2", "Q3"]}
+    """
+    print(f"[DEBUG] get_clarifying_questions called with goal: {goal}")
+    
+    model = setup_gemini()
+    
+    prompt = f"""You are CoachAI, a helpful goal-planning assistant.
+
+A user wants to achieve this goal: "{goal}"
+
+Ask EXACTLY 3 clarifying questions that would help create a better plan.
+Focus on:
+1. Timeline/deadline (when do they need this done?)
+2. Time commitment (how much time can they dedicate per day/week?)
+3. Current level or constraints (experience, resources, limitations)
+
+Return ONLY valid JSON in this format:
+{{
+  "questions": [
+    "Question 1 here?",
+    "Question 2 here?",
+    "Question 3 here?"
+  ]
+}}
+
+Be specific to their goal. Avoid generic questions."""
+
+    data = call_gemini(model, prompt, max_tokens=500)
+    
+    if data and "questions" in data:
+        return {"questions": data["questions"][:3]}
+    
+    # Fallback
+    return {
+        "questions": [
+            "How much time can you dedicate per day or week?",
+            "What's your deadline or target completion date?",
+            "Are you a complete beginner or do you have some experience?"
+        ]
+    }
+
+
+def generate_plan(goal: str, qa_pairs: list) -> dict:
+    """
+    Generate a complete plan.
+    
+    Args:
+        goal: User's goal
+        qa_pairs: [{"question": "...", "answer": "..."}, ...]
+    
+    Returns:
+        {
+            "goal": "Learn guitar",
+            "total_time": "40 hours over 3 months",
+            "steps": [
+                {
+                    "step_number": 1,
+                    "do": "Buy a guitar and tuner",
+                    "why": "Need proper equipment",
+                    "check": "Guitar is tuned and sounds clear",
+                    "time_minutes": 120,
+                    "resources": ["Guitar Center", "Amazon", "YouTube: How to tune"]
+                },
+                ...
+            ],
+            "tips": ["Practice daily", "Start slow", ...]
+        }
+    """
+    print(f"[DEBUG] generate_plan called with goal: {goal}")
+    
+    model = setup_gemini()
+    
+    # Build Q&A context
+    qa_text = "\n".join([
+        f"Q: {pair['question']}\nA: {pair['answer']}"
+        for pair in qa_pairs
+    ])
+    
+    prompt = f"""You are CoachAI. Create a detailed, actionable plan.
+
+GOAL: {goal}
+
+USER'S ANSWERS:
+{qa_text}
+
+Return a JSON plan with this EXACT structure:
+{{
+  "goal": "{goal}",
+  "total_time": "realistic estimate like '20 hours' or '2-3 months'",
+  "steps": [
+    {{
+      "step_number": 1,
+      "do": "ONE specific, concrete action",
+      "why": "Why this step matters (build knowledge/skill/momentum)",
+      "check": "How to verify it's done (measurable, observable)",
+      "time_minutes": 60,
+      "resources": ["Specific resource 1", "Specific resource 2", "Specific resource 3"]
+    }}
+  ],
+  "tips": ["Actionable tip 1", "Actionable tip 2", "Actionable tip 3"]
+}}
+
+CRITICAL RULES:
+1. Create 5-15 steps (not too few, not overwhelming)
+2. EVERY step MUST have: do, why, check, time_minutes, resources
+3. 'do' must be specific and actionable (not vague like "practice")
+4. 'check' must be measurable (can you verify it's done?)
+5. 'time_minutes' should be realistic (15-480 minutes per step)
+6. 'resources' should be specific (not just "Google" or "YouTube")
+7. Steps should build on each other logically
+8. Consider the user's timeline and time commitment
+
+Return ONLY valid JSON."""
+
+    data = call_gemini(model, prompt, max_tokens=4000)
+    
+    if not data or "steps" not in data:
+        # Fallback plan
+        return {
+            "goal": goal,
+            "total_time": "Estimate varies",
+            "steps": [
+                {
+                    "step_number": 1,
+                    "do": f"Research and define what '{goal}' means specifically",
+                    "why": "Clear goals prevent wasted effort",
+                    "check": "Can explain the goal in 2 sentences",
+                    "time_minutes": 30,
+                    "resources": ["Google search", "YouTube", "Reddit communities"]
+                },
+                {
+                    "step_number": 2,
+                    "do": "Break the goal into 3-5 smaller milestones",
+                    "why": "Big goals need checkpoints",
+                    "check": "Have a written list of milestones",
+                    "time_minutes": 20,
+                    "resources": ["Notebook", "Notion", "Google Docs"]
+                }
+            ],
+            "tips": ["Start small", "Be consistent", "Track progress"]
+        }
+    
+    # Ensure step_number exists
+    for i, step in enumerate(data.get("steps", []), 1):
+        step["step_number"] = i
+    
+    return data
+
+
+def create_schedule(steps: list, start_date: str, days_per_week: int, minutes_per_day: int) -> list:
+    """
+    Create a calendar schedule.
+    
+    Returns:
+        [
+            {
+                "date": "2024-01-15",
+                "tasks": [
+                    {
+                        "step_number": 1,
+                        "title": "Buy guitar and tuner",
+                        "minutes": 120
+                    }
+                ]
+            },
+            ...
+        ]
+    """
+    print(f"[DEBUG] create_schedule called")
+    
+    try:
+        start = datetime.strptime(start_date, "%Y-%m-%d")
+    except:
+        start = datetime.now()
+    
+    # Determine which days of week to use
+    days_per_week = max(1, min(7, days_per_week))
+    if days_per_week == 7:
+        session_days = set(range(7))
+    else:
+        # Spread evenly across week
+        session_days = set([int(round(k * 7 / days_per_week)) % 7 for k in range(days_per_week)])
+    
+    schedule = {}  # date -> list of tasks
+    current_date = start
+    day_minutes = 0
+    step_index = 0
+    
+    while step_index < len(steps):
+        # Skip non-session days
+        weekday = (current_date - start).days % 7
+        if weekday not in session_days:
+            current_date += timedelta(days=1)
+            day_minutes = 0
+            continue
+        
+        # Check if day is full
+        if day_minutes >= minutes_per_day:
+            current_date += timedelta(days=1)
+            day_minutes = 0
+            continue
+        
+        step = steps[step_index]
+        time_needed = step.get("time_minutes", 60)
+        remaining = minutes_per_day - day_minutes
+        
+        if time_needed <= remaining:
+            # Step fits today
+            date_str = current_date.strftime("%Y-%m-%d")
+            if date_str not in schedule:
+                schedule[date_str] = []
+            
+            schedule[date_str].append({
+                "step_number": step.get("step_number", step_index + 1),
+                "title": step.get("do", "Task"),
+                "minutes": time_needed
+            })
+            
+            day_minutes += time_needed
+            step_index += 1
+        else:
+            # Move to next day
+            current_date += timedelta(days=1)
+            day_minutes = 0
+    
+    # Convert to list format
+    result = []
+    for date_str in sorted(schedule.keys()):
+        result.append({
+            "date": date_str,
+            "tasks": schedule[date_str]
+        })
+    
+    return result
+
+================================================================================
+
+================================================================================
+FILE: backend\main.py
+FULL PATH: D:\Janmejay\Python\Task_decomposer\backend\main.py
+================================================================================
+#!/usr/bin/env python3
+"""
+CoachAI FastAPI Backend
+"""
+
+# ADD THESE TWO LINES AT THE TOP:
+from dotenv import load_dotenv
+load_dotenv()  # This loads .env file
+
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from typing import List, Optional
+import coach
+
+app = FastAPI(title="CoachAI API")
+
+# Enable CORS for frontend
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],  # Next.js dev server
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# Request/Response models
+class ClarifyRequest(BaseModel):
+    goal: str
+
+class ClarifyResponse(BaseModel):
+    questions: List[str]
+
+
+class QAPair(BaseModel):
+    question: str
+    answer: str
+
+class PlanRequest(BaseModel):
+    goal: str
+    qa_pairs: List[QAPair]
+
+class Step(BaseModel):
+    step_number: int
+    do: str
+    why: str
+    check: str
+    time_minutes: int
+    resources: List[str]
+
+class PlanResponse(BaseModel):
+    goal: str
+    total_time: str
+    steps: List[Step]
+    tips: List[str]
+
+
+class ScheduleRequest(BaseModel):
+    steps: List[Step]
+    start_date: str
+    days_per_week: int
+    minutes_per_day: int
+
+class ScheduleTask(BaseModel):
+    step_number: int
+    title: str
+    minutes: int
+
+class ScheduleDay(BaseModel):
+    date: str
+    tasks: List[ScheduleTask]
+
+class ScheduleResponse(BaseModel):
+    schedule: List[ScheduleDay]
+
+
+# Endpoints
+@app.get("/")
+async def root():
+    return {"message": "CoachAI API is running"}
+
+
+@app.post("/api/clarify", response_model=ClarifyResponse)
+async def clarify(request: ClarifyRequest):
+    """Get 3 clarifying questions for a goal"""
+    try:
+        print(f"[DEBUG] Received goal: {request.goal}")  # ADD THIS
+        result = coach.get_clarifying_questions(request.goal)
+        print(f"[DEBUG] Got result: {result}")  # ADD THIS
+        return result
+    except Exception as e:
+        print(f"[ERROR] Exception occurred: {e}")  # ADD THIS
+        import traceback
+        traceback.print_exc()  # ADD THIS
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/plan", response_model=PlanResponse)
+async def plan(request: PlanRequest):
+    """Generate a complete plan"""
+    try:
+        qa_pairs = [{"question": qa.question, "answer": qa.answer} for qa in request.qa_pairs]
+        result = coach.generate_plan(request.goal, qa_pairs)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/schedule", response_model=ScheduleResponse)
+async def schedule(request: ScheduleRequest):
+    """Create a calendar schedule from steps"""
+    try:
+        steps = [step.dict() for step in request.steps]
+        result = coach.create_schedule(
+            steps,
+            request.start_date,
+            request.days_per_week,
+            request.minutes_per_day
+        )
+        return {"schedule": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+
+================================================================================
+
+================================================================================
+FILE: backend\requirements.txt
+FULL PATH: D:\Janmejay\Python\Task_decomposer\backend\requirements.txt
+================================================================================
+fastapi==0.109.0
+uvicorn==0.27.0
+google-generativeai==0.3.2
+pydantic==2.5.3
+python-multipart==0.0.6
+
+================================================================================
+
+================================================================================
+FILE: backend\versions.py
+FULL PATH: D:\Janmejay\Python\Task_decomposer\backend\versions.py
+================================================================================
+import os, google.generativeai as genai
+os.environ.get("GEMINI_API_KEY") or print("No GEMINI_API_KEY set")
+genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+mods = list(genai.list_models())
+for m in mods:
+    print(m.name, getattr(m, "supported_generation_methods", []))
+    
+
+================================================================================
+
+================================================================================
+FILE: coach-ai-web\app\favicon.ico
+FULL PATH: D:\Janmejay\Python\Task_decomposer\coach-ai-web\app\favicon.ico
+================================================================================
+         (  F          (  n  00     (-             ¾F  (                                                           $   ]   º   º   ]   $                                           ò   ÿ   ÿ   ÿ   ÿ   ò                               8   à   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   à   8                  â   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   â              ¡   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ¡       #   ô   ÿ   ÿOOOÿ®®®ÿ«««ÿ«««ÿ«««ÿ«««ÿ­­­ÿgggÿ   ÿ   ÿ   ô   #   Y   ÿ   ÿ   ÿÿíííÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿýýýÿ555ÿ   ÿ   ÿ   ÿ   Y   »   ÿ   ÿ   ÿ   ÿkkkÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿ   ÿ   ÿ   ÿ   ÿ   »   »   ÿ   ÿ   ÿ   ÿ			ÿÍÍÍÿÿÿÿÿÿÿÿÿäääÿÿ   ÿ   ÿ   ÿ   ÿ   »   Y   ÿ   ÿ   ÿ   ÿ   ÿJJJÿýýýÿÿÿÿÿkkkÿ   ÿ   ÿ   ÿ   ÿ   ÿ   Y   #   ô   ÿ   ÿ   ÿ   ÿÿ¶¶¶ÿÕÕÕÿ			ÿ   ÿ   ÿ   ÿ   ÿ   ô   #       ¡   ÿ   ÿ   ÿ   ÿ   ÿ111ÿDDDÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ¡              â   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   â                  8   à   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   à   8                               ò   ÿ   ÿ   ÿ   ÿ   ò                                           $   ]   º   º   ]   $                                                                                                                                                                                                                                                                                    (       @                                                                               ,   U      è   è      U   ,                                                                                      *      Ò   ù   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ù   Ò      *                                                                         ó   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ó                                                             Q   á   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   á   Q                                               r   û   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   û   r                                       r   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   r                               O   û   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   û   O                          ä   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ã                         ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ                  (   õ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ô   '              ÿ   ÿ   ÿ   ÿ   ÿ   ÿ888ÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿ___ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ             Ô   ÿ   ÿ   ÿ   ÿ   ÿ   ÿÿîîîÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿSSSÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   Ô      +   ú   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿhhhÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿ®®®ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ú   +   T   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿÿËËËÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿôôôÿ,,,ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   T      ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿGGGÿýýýÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ      é   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ­­­ÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿäääÿÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   é   é   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ+++ÿóóóÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿjjjÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   é      ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÌÌÌÿÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ      T   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿÿãããÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿýýýÿIIIÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   T   +   ú   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿhhhÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿ¯¯¯ÿÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ú   +      Ô   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿÿËËËÿÿÿÿÿÿÿÿÿôôôÿ,,,ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   Ô             ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿGGGÿýýýÿÿÿÿÿÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ              '   ô   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ±±±ÿìììÿÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   õ   (                  ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ333ÿ___ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ                         ã   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ä                          O   û   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   û   O                               r   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   r                                       r   û   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   û   r                                               Q   á   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   á   Q                                                             ó   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ó                                                                         *      Ò   ù   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ù   Ò      *                                                                                      ,   U      è   è      U   ,                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               (   0   `           -                                                                                             	   (   L   j   ³   ø   ÷   ³   j   K   (   	                                                                                                                                          V       Ø   ø   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ø   Ø       U                                                                                                                      %      á   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   á      &                                                                                                         ï   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ï                                                                                             Q   Ü   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   Ü   R                                                                                 þ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   þ                                                                        ­   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ­                                                             ¸   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ¸                                                     ®   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ®                                                 ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ                                          P   ý   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ý   O                                  ß   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ß                                 ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ                          #   ñ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ñ   #                      ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ                     ä   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ$$$ÿhhhÿeeeÿeeeÿeeeÿeeeÿeeeÿeeeÿeeeÿeeeÿeeeÿeeeÿeeeÿeeeÿeeeÿeeeÿeeeÿeeeÿeeeÿeeeÿeeeÿeeeÿeeeÿPPPÿÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ä              U   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿÿëëëÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿsssÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   U           ¡   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿeeeÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÌÌÌÿÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ¡       	   Ú   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿÿÉÉÉÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿýýýÿHHHÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   Ú   	   (   ù   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿEEEÿüüüÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿ®®®ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ø   (   K   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿªªªÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿôôôÿ,,,ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   L   j   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ)))ÿòòòÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   j   ´   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿãããÿÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ³   ø   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿÿáááÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿiiiÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ø   ø   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿeeeÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿËËËÿÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ø   ³   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿÿÉÉÉÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿýýýÿHHHÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ´   j   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿEEEÿüüüÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿ®®®ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   j   L   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿªªªÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿôôôÿ,,,ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   K   (   ø   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ)))ÿòòòÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ù   (   	   Ú   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿãããÿÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   Ú   	       ¡   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿÿáááÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿiiiÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ¡           U   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿeeeÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÌÌÌÿÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   U              ä   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿÿÉÉÉÿÿÿÿÿÿÿÿÿýýýÿHHHÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ä                     ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿEEEÿüüüÿÿÿÿÿ®®®ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ                      #   ñ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ¬¬¬ÿûûûÿ,,,ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ñ   #                          ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ222ÿ}}}ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ                                 ß   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ß                                  O   ý   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ý   P                                          ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ                                                 ®   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ®                                                     ¸   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ¸                                                             ­   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ­                                                                        þ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   þ                                                                                 R   Ü   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   Ü   Q                                                                                             ï   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ï                                                                                                         &      á   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   á      %                                                                                                                      U       Ø   ø   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ÿ   ø   Ø       V                                                                                                                                          	   (   K   j   ³   ÷   ø   ³   j   L   (   	                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        PNG
+
+   
+IHDR         \r¨f   sRGB ®Îé   8eXIfMM *    i                                D"8s  IDATxí]	°Õn]<QVAèÄh$	ÊN13*q°ÂdªÄ©I¡DL2ª(Î(Ô2ÖÄÑG	Áq_@å±àxÈï»Ð¾{o÷½½ÓýýUß{}»Oå;çÿûôùÏ9ÝÂd®(Dg Ð8	èôN º]î@ hx¥?v 
+ÀNà3à=`;ð6ð.ð&°àuâà  ±6P©Ð½Á@ÿÃ RÓ PùiZqÊ^DNãàwp¼
+Ø¼ÐXÐhÐHg@ÀÌ
+:Ùâ|ð5` p"@À'¼É²s{
+ëpü*ð2ÀÞÄ d Ò¯È|(0ø
+0 à>Kò
+³xX¬6 IJÈ ¤C|?$KENØ}Ï|Âòµáàöh $	2 Ù|/§Â . Nz #¼ÃWeÀ
+à5ã
+Ü¶úà;Ày ¾ ñgàs©h^  IÄÈ DL(¢;¸8 ÒHjgcH|x 1 ËR"aïôÓ GÁÙ@è9`/`%0è
+HÄ@jð½~,° ÛK
+,t).ÎèIDèT¦Oû)~º°Vìu$b èª
+ÐU%¥7¨ù _É$b 8Aç×ÀßøJö3` 510wQñ?¤øvrðÑá:ü2þKÄ@ ¤øv*{%#íAZå^(õÏ=ñ³g \ãÀWÛÉ!:àß,`à6ýÏ643:@c.FÙ¤ðùäu?Ð<'áÝ_Üvp: É8Q¾
+IñÅ·
+p{3ÎóÐkHÈ¢G¡¼®cñÑ¼
+<62&
+×2uCÁÿàÚòæ­ßâ¤Tø3Ú
+½ê
+;î¼ªd/~m½.øXÆ@{äw.°ð«d]GÚ {lKÜàEbÿý(P©RuMüTÛCÒÚÃ
+Àdäï])¿_Lmà=Äû=@bÍ÷KÛGUkÙ^UÓØÆØÖø)1È»gÕT¢Â¯°m`9Ú\Ú®³ÀQþÍ@ØÊÔýâ°6ð:ÚÕ^w¬òï¸ED¤Á ç	ü5°àºëÄFÐ,ßÜ
+ðX"Òdmð<nB~òì@´¸÷µt×tx»
+ü;ÚfÞ>ñªíI8µ»¿8Ó¸C1Ûª$B¸§e©Ý+þjl«ÜEZÃÇ& ©ÊS:â:6°möë´ÿ\G1¥ç`¢¨Å!nl»lÃÆÉ^Q`í·@OcÙSÆÄ@e¸Í·º¹ç¤qbªpÿãSÄ@upº±FÀD@å¿Ð¿º¦Ðæ2@#À¹ÆõL3 £A$H2Ç _h¶FH#rq(íÿOàDò¤¬¨àrunGOWaêb &SgDñ3ÀEDçto§*Ç¤ú¡Ä9kÝ~)¿¡,$Â x¿R1vàK áÀ9DäU(ðw®&LEÒäê©»S)¹é3ÐY8x8 $.i(íÄK¬ÅYìðaÈ]­´À4ôÇ	c®Å@3¸fàó4Æ Æ¢ÿ
+Ð/*bàüþ Çþ$!I~Ø7ÉB*-1`	o  º	$»àÇ¡D¾Lûàòß êJ"äÀOQ¢Ë)ö2@#Ðx4"$e ¨ø·Iö8àOi8ø"Ý ¼GäÞ8[xÄt<ñ.´´7&m&ØR^³tq÷ Øá.¾§ÅYÅ-2È ½d§ ûã*_Üà&d|j\W¼b ãôGùö«â*g¯ £éÄF4ã"IñØ´/ b1qNÈðãÀYDp¼Û9îãpÑ}w\¯ óÔ¤£Ó1 j`èOûî­xK=ÑHñ÷ ÷A1
+#¾
+D:U8jÀõýtù©ë$b bA||ØU¼Q¿ü26%ªÌ)1 è_
+Àê¢³!~DÙàºæ ¿à+b >A´Ü:]ÑE$£50òGDhRÑtèÐÁéÝ»wRÉ)ðPÇ èn$ 3ÜÖë@bS§Nu,Yâ´jÕÊ²ç:»¡ôÜ;ÀáÀßó@£`Ç|ã-[)'OVýÙÕ©sFxÚ®âÛ¥øn}Í7¯ üü³~ýúÆºº:»ÀQ©J_¤ÎUKj8q0xðàÆ;v4 Ì=[õhW=¾	Ýë	¤&·!e5Ë8hÑ¢EãÝwß]¤üüñá6öïß_õiW}þSZÚ?	¿/`;vlã¾}û2 <±hÑ" »À§ÐAî¹¸ÜÕX,ã mÛ¶+V¬(©ü<¹wïÞÆ#F¨^íª×;ÖþaHðc ûà)SÊ*¿{aùòåpÊØc89(Ñ^þö4&E¦ÛoÃ
+®Wü/· uÆ=±^þ*?{k^·_EíÇÅúúz¹íªgö UI-è{WU*
+:pû9.tÚ·o(/Ýºus>ûì3ç'^RgßäÚGâÌI_D®»åÜ~~½ ¹­{
+øúÙ?N07½SêØ.Æ×¸ÿ~?}/y]nA;êØ£³ã2 ]ñFOB2C?·_I­÷[Ð:°:Ú=#ÀOzKé-ã ÛÏ£ï%å´®Ý?jÐþIÀ®PÛ¯¤æ{NÊ-hUÝÿt:øõ ,â ·G×KÊ-hUÛç¢chP7 ÿÎ¡ÂÁ@µn?¿\Ó-¸k×.¹ý2ã:õú ð`ÙáFÛ=ý-á V·_ÉG¿ç¤ÜVé Ýõ}¢0 WIù­ªøFºýÊ­öóèsMrZÕ8pJ¸QÜ*@OK8ëöó³
+rZ¥ÔÝa, ßûwË ØSéW^y¥¾.· 5íat7ÔØÝ¤üÖTv#Ý~7n­àA"¸üòËÕ+´£WøèpMÂÅ/ªhK8Òíçgä´F/^·«ÅÀM{e ì¨èR|ú)qØë7Ýtæ?8'àµKùíP~ºýî¹ç°ú\õýrÚÑ> Ç·Uk ØeP÷ß|ë^xÇéöó³
+/V/Àüvòô¯ôåä¢*×pâvûù ¹­Ð¾Ê]JûË}ók8(ÎÅÇÀÄÑ£GÇOÌmÚ´q,X oúðòe.â^ ¡QxÐÓßptûùõä4^_N{à¾øÅyÄ2 s¤ÛÏÏ Ð-Ø¹sgµsÛÌÐiêvZ
+8
+!~PJ?c«ýîºë®À|Æ] ®Ü½{·³zõê¸Rüµ1pnãÔàzïí¥º¼tlpû9³fÍrºvíjTæ®¿þzß4*OÊLã~øÑçÔ34Ý~~¯r­;ÔmêxY+üÀ¡¤íöó3 r­;Ômêx4à÷Å:7]ÕqL4)U·!rú1êuê6¿ìÕ$Í
+À7®èÀ8ºwïîÌ3Ç¸|5Ï>?î\zé¥ÍOë·ëÍ× ðø,ïEÅÀ3©2¹¹å[ººº2Wu:E¾´¼^p.H1cJºtû]}õÕBuéÔSOu®º»ÉIcO¥òÄ% 
+ ÆAZ«ýüüü®kµ ºD?Ç5 Þ@Q×À
+ ÿé3Àwê+®¸"ýTÎSÀUÞ¥à13Àî?ûâ5 M'Ýú>pûþZµj~fjÈ
+××¡Ôn©¦±>× ðÿi5D¤[bf íÕ~a'·`Xc¹ã -¼1ók¢½ÿÄI«ýüÞ÷ý®kµ QºÅ¯|ókßMËé(92È@t°ÉíçÇÝX-èL×aúN4qÜ'$f0@·
+@VnAÜYá½L9:â|/^sÇ ú	¨Ó)0`êj¿°T\wÝuZ-ÄèîÂ¨\ 	@Ñ:¦±cítûù{È-èÇRb×û1%× ôI,Y%TÛÝ~rú1ØõÂC,¼$´*Ëé«ýÊf<à¹0zþ¥èhÕFüû¦ ·«ý|â¯8Z-èCRü¹Tg× ÐHRfglYíª¹sçÊ-Äp÷Ó'+Ãèî¶mµ_ØgÍÍîçC¿{ ô	òÃÈªÛÏÎ3gÊ-èGR|×¹7`GÞñ¥¡0U·_ÙµZÐ¡Ø¯D )À±ó\>¬»ýÊüÐ¹ýõz N¤Ä@ÖÝ~~´Ê-èÇP¬×{rs¿´@¬<|.]ºÔ¸|Îm|gûõëç¬_¿ÞyåWâKD1bàM½¢%¡s\·¥rú1Ëõnì\Æ"-É Ý`.4æÛ~%3àI}[0A²$µ= -Ò>BH"G®Û^r­<ÂEBGÝi Ú%9Ì@^Ý~~
+@«ýüú1Üì@ tû-[¶ÌèÏ{%@CÙ$ðmAgüøñÎ5kÊÑÈø/åOÿlßäÓ¿áBÐ@.X°À±uäp¥Oüî6x²9MPn¿`ß·o_§¾¾^nÁ`t
+¥§(úª»\rûùsÆAÒyóæéÛþT¡@h
+E0lØ0çÎ;ïtÚµÓkÆ¸N ¡¡ÁYµjUà
+S#ì|^ã½º- |¢ÝpÃ
+N.­ØÞ¥`×^{­zLñ64 Äbç¨öe]&"ªdsÎ9UÞ¥àU0ð!
+ÀÁ*nPÐ*`ÿæoÖ¨v¼¹Ái8GåþÔÿhh ØmÍËÀäÉsÏ=×{JÇU0ÀÕóçÏwZ·æþøìö8bEzôèá,Y²Dïþ![C>}7:k×®
+noÆÀfö >jvR?#bX(¶üFÃAT¾FÕÕióê[Á{ì°zvÄç>º¡CÊía+[0B2Dµ=íG~ë(
+øÄºñÆÕõLO×\sÜ>"8|`[)
+&Lp8ø'öäÓí4 oGeÎ#£ÛÀlÙ_\DÍÜ2ZØl¢Üi´9
+täÈ9f Þ¢Ë-¿¼=YÌyn?uQã¯}XÍ¬ÍsAïi >=Ð1æ=RÉí+à +
+­Ü¡¸.2 Kì«·ßôéÓCÆ¢Û20hÐ Ë«%53À5@MA¹%¦×Ì£ãÈí¼·j[õä9Î;¸û _(¯ú§¿µ0ÀÕ~rûÕÂ\¸{ômÁPüÜÿ®x#TT9¾n?¾ÊíN# á×¥&î}× ¬¯)
+ÝTVL¯!¸ßÔjÁªë`ïp
+ ß8@RrûUAVAå¬Ü=¸ã-Þå÷pLHª`@n¿*È1¨ÜUËõ?}w
+ ]ìH2@·ß´iÓV°¸ [Ë¯%àôÿëß5 8±)Ð­
+T`|rZbZ-¸.Ö!da+@× ðÎçßóZígf[0p½¼æô ä¤ I´Égr¸$· o%PÇ_rCy
+ÀV|ß½ ÿ¥à"mòYÎÊ-è[ lÚÄk xAã øÛ¯9]¢[pÒ¤IåÈ¨¬pPÇÏk ºFeÙÌÈígHEødnAm"Z$õ5}zå8üéô2røX| ÅàSÜ»w¯³råJsJÖ~Tfþz{ ÌÍ« ÷xÐj?jµàQEÝnò ðjsÀùÁ|GxÐ·ý<dXt(·àQEÝ.¬p¯47 Üð)÷¢þ;Ïysµ_«V­DÈ-XTiÔí¢ý? ~¼èÿÛÏî ·`Qý=Vô?òú^à
+¹ºý.]ª|XÞ
+ômÁB~¿?ÆøJõ ÞD ·äüÜ~Ùh rêóÿ©ÛERªÀAÝóBæìÝ~wÜqÓ¾}û<Å[Ð¹5ûdóÚ-Õ`5 ?KqÝ~l4ì0@·à)§/I®(¼àØü¥nÎê9¹ý²Y³4è!CÙ2×*w9ÀÀGKÝõsî&rûe³¦súé¶? 6Ù8JÊ |(òuwOä´d°&K)nA¾Ê?RÒn@7,·º8Á=õÿrûe½nÁM69k×òM7óÂéý·J´R]e¥nÊê9¹ý²Z³Ååâ /?áo>Òó¾¤rzrÒÀ óó`åöóV{ö»uëæ4448«V­Êra÷ p³ îõQRZ<{ädK.F9½#~Tâ¾ûîs.¾øâìN%*Ë 
+ÀðáÃuë8G&²¥ì/W:*x%á{Ã}@¦
+ »lõõõNc#çAIòÀÀ±ÇõiÞ÷£Ë*?ëØ¯À0}gãùC"ÄpÛ¯³ßû¨4èÒ(bÀ8_QùY áîr7'`·ÿî ùj ¸6à *©3ÀWögä"¨àl¢
+¡Â1:ì±Sg}%È  	¹¥P?÷þ1`£¯ÉYÐ ãâ"Dª0b@¤Æ Ýö9¬¦Àðý¾[táF1Àôp`kÐ\UÓ`ÜRø·A#W81 e`)RÛZMÕö ÷[uæF0ð	rq.ÀÕ¥Ú #^ð=C"Ä9P'«R~f½ ï
+pnzdC"Òe ¦§?³\K÷½¨@&$b }jzú3Ûµö x/{èÄ1 Ra#ÿ|÷çÆUK­= &Ä^æTM¹n2À9ÿ5)?s¦Àû{O'óDDàßo [kMÕoK0¿xÿ ÜTd_@]b ræ ÆGÃÄ¶À´; «¯òDDàêÜ1ÀgaRÛ`ÚÜ'`0Â  >\ë/ùñ½fÐùøñ÷Åß!fn÷Z¢|bÜðU .t®åà¤ÑÀÚrª9Å+ý­±î	ýb rnEDk= æé8àÀÙü!b RClãPÞEÙ`¼ÜK'~ß@ Ë}*°!`ø@Á¢6 Lô
+ ;À	$b@DÃÀ?#ÈgÞFý
+àµV1výÇ;ÃEsôÝQ¹ÇÌ=É®ö4¿ ßb@TÅÀnþ!¹ò3q¼0^ÊVã c µ1ðÜ¶´¶[ýïëÀM¹=8IÝÕ1@Ú@Cu··`N¸oÀã WJÄÆ WúÑåÇe÷±I¯ n¦¹Nàmà¯¸ÆÜ´ô_d(Ä4`EÜIÂ °¯"ÌµË1 *3ð+\þEå Ñ\MâÀÍ)g	rÁ¦
+»è¿8>õ¿pô?vIÒ °0Ç~ü!b ­øÅ$'Ó%"I¿¿RýÀi1 0°? S~&Ô ÓräÆ¤{ nô_ÄÀÈÌLà?ÎTeäÔÆÀ7ùC"rÎÀOQ~"qIË ° O 8?$b §Ürÿ#@×_âv¼JÌ£/¹é3ð'dá/ÈÖ÷W[¤¤ço'Nü
+ðlóú-2Î Ûüå@jÊO~Óî0À2` HÄ@ÆØòÐ+ª¤ÝpOB® ÞuOè¿È(lãSÔü¦9Èô½ò~ðcß:x/èXd.ðù°Æòd ÈÉVày@F $H2Å ïü+M*iÜl8O@F $H2Á å®2­4& r´
+POÀ´Ö¢üÔÂûä7NùYS
+ ó¶ øÀY1`ðã;ÿJS3n² g['@W@"la`32Ên?'ûHB2p
+îhÄmmu ×j@F@ÜV ²­Z!¦¿xIäÉÿH®yÑ±)üù>ÀåZ!6 ºàaÎ`äþ¦ÌdDV$9fëù	pM¿6»I¨!LG:\LdrwPyË~ýPá§%ÔæL3Æá7çTKÑÄAmmo|³6©	3Ðé-Òh J3¿¼?67 á¶yr¶"ûþàgÈÎ4. $±1À÷ý_¼[*¸&¸¤S/õdq´ÎìãäÁCÞâh 3¿¼>6Å¶%±¶Èã\#´RZq¦
+ð=lK|ÅXÆÀXäWSe j5 /¡ýÐÓ$±:äýv@½ Î8Ð×
+d1(z2~Fà)´ùö3¢ôÍÁÞÀl®C¿ ëùâè#´í=².\Lt? %Ñ N$9b %Ê:àþ2ùäu	 É1|-	ldòÁ÷t $b À@?ü¥·@ »FàcÔïÏ^Dd[9ýà zÙàÏ:
+HÄ@ ¾P2v )~ ¦®@àüïz5°Ç|úÒ¿R«ÖµªàÁ|`# W39Øºá<î"-±0Àï\<ìdÒåuÀoGLz 1Gp°àeå¯d .øj
+HÄ@jôFÊ3@ c{s<ÿùJ&	É@÷ëöb¸ÙÀw  ²§ ©nÁµàvð²û< ,M;û*p>p!0hHüà{=»ðüxà]IÄÈ DLhèÚâ<'¡h8Ç@V Á#ïãJÿ°àfû IÈ ÄHn¨ûãW}àNÆt[uò$¢°§å þ
+@ 2 	]&) #3,	=%¯TôÕÀkÀ&à  I÷I¶®Ó³ð Ù[8	è	´L]È]tïTðgõÀ6à-@b2 UOVºã:
+ 
+A?¯
+} .iî|	àxCÂ÷rvßw; ÎÀ#ê>éi 8_b82 WPìÑõè  {'n¯áÓ8ðz;Æ¤yÝs Ã@¥¦¼P¡·o|ÂSùih $3ðÿ@ß¹jìá    IEND®B`
+
+================================================================================
+
+================================================================================
+FILE: coach-ai-web\app\globals.css
+FULL PATH: D:\Janmejay\Python\Task_decomposer\coach-ai-web\app\globals.css
+================================================================================
+/* app/globals.css */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Minimalistic Dark Theme */
+:root{
+  --app-bg: linear-gradient(135deg, #0a0a0f 0%, #1a1a2e 50%, #16213e 100%);
+  --sidebar: rgba(15, 15, 25, 0.95);
+  --chat-bg: rgba(10, 10, 20, 0.98);
+  --ai-block: rgba(20, 20, 35, 0.9);
+  --user-bubble: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  --border: rgba(255, 255, 255, 0.08);
+  --text: #f8fafc;
+  --muted: #94a3b8;
+  --accent: #667eea;
+  --accent-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  --hover: rgba(102, 126, 234, 0.15);
+  --selected: rgba(102, 126, 234, 0.2);
+  --success: #10b981;
+  --warning: #f59e0b;
+  --error: #ef4444;
+  --glass: rgba(20, 20, 35, 0.6);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; overflow: hidden; }
+body {
+  margin: 0;
+  background: var(--app-bg);
+  color: var(--text);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  backdrop-filter: blur(10px);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Minimalistic scrollbars */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { 
+  background: transparent; 
+}
+::-webkit-scrollbar-thumb { 
+  background: rgba(255, 255, 255, 0.1); 
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover { 
+  background: var(--accent); 
+}
+
+/* Advanced animations */
+@keyframes fadeIn { 
+  from { opacity: 0; transform: translateY(20px) scale(0.95); } 
+  to { opacity: 1; transform: translateY(0) scale(1); } 
+}
+
+@keyframes slideInRight { 
+  from { opacity: 0; transform: translateX(30px); } 
+  to { opacity: 1; transform: translateX(0); } 
+}
+
+@keyframes slideInLeft { 
+  from { opacity: 0; transform: translateX(-30px); } 
+  to { opacity: 1; transform: translateX(0); } 
+}
+
+@keyframes pulse { 
+  0%, 100% { opacity: 1; } 
+  50% { opacity: 0.5; } 
+}
+
+@keyframes typing { 
+  0%, 60%, 100% { transform: translateY(0); } 
+  30% { transform: translateY(-10px); } 
+}
+
+@keyframes glow { 
+  0%, 100% { box-shadow: 0 0 20px rgba(102, 126, 234, 0.3); } 
+  50% { box-shadow: 0 0 30px rgba(102, 126, 234, 0.6); } 
+}
+
+.message-in { animation: fadeIn 0.4s cubic-bezier(0.4, 0, 0.2, 1); }
+.message-user { animation: slideInRight 0.4s cubic-bezier(0.4, 0, 0.2, 1); }
+.message-assistant { animation: slideInLeft 0.4s cubic-bezier(0.4, 0, 0.2, 1); }
+.typing-dots { animation: typing 1.4s infinite; }
+.glow-effect { animation: glow 2s infinite; }
+
+/* Minimalistic glass utilities */
+.glass {
+  background: var(--glass);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow);
+}
+
+.glass-strong {
+  background: var(--glass);
+  backdrop-filter: blur(30px);
+  -webkit-backdrop-filter: blur(30px);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-lg);
+}
+
+/* Modern button styles */
+.btn-primary {
+  background: var(--accent-gradient);
+  color: white;
+  border: none;
+  padding: 12px 24px;
+  border-radius: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+}
+
+.btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
+}
+
+.btn-primary:active {
+  transform: translateY(0);
+}
+
+/* Smooth transitions */
+* {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Focus styles */
+textarea:focus, input:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+button:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.3);
+}
+
+/* Custom scrollbar for webkit browsers */
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Minimalistic AI indicators */
+.ai-indicator {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  background: var(--glass);
+  border-radius: 16px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--accent);
+  border: 1px solid var(--glass-border);
+}
+
+.ai-indicator::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  background: var(--accent);
+  border-radius: 50%;
+  animation: pulse 2s infinite;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .glass {
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+  }
+}
+
+================================================================================
+
+================================================================================
+FILE: coach-ai-web\app\layout.tsx
+FULL PATH: D:\Janmejay\Python\Task_decomposer\coach-ai-web\app\layout.tsx
+================================================================================
+// app/layout.tsx
+import type { Metadata } from 'next';
+import { Inter } from 'next/font/google';
+import './globals.css';
+
+const inter = Inter({ 
+  subsets: ['latin'], 
+  weight: ['300', '400', '500', '600', '700'],
+  display: 'swap',
+});
+
+export const metadata: Metadata = {
+  title: 'CoachAI',
+  description: 'AI-powered goal planning assistant',
+};
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html lang="en">
+      <body className={`${inter.className} antialiased font-normal`}>{children}</body>
+    </html>
+  );
+}
+
+================================================================================
+
+================================================================================
+FILE: coach-ai-web\app\page.tsx
+FULL PATH: D:\Janmejay\Python\Task_decomposer\coach-ai-web\app\page.tsx
+================================================================================
+'use client';
+
+import { useState, useEffect } from 'react';
+import { SavedPlan } from '@/types';
+import { getAllPlans, savePlan, deletePlan } from '@/lib/storage';
+import Sidebar from '@/components/Sidebar';
+import ChatInterface from '@/components/ChatInterface';
+
+export default function Home() {
+  const [plans, setPlans] = useState<SavedPlan[]>([]);
+  const [currentPlanId, setCurrentPlanId] = useState<string | null>(null);
+  const [loadedPlan, setLoadedPlan] = useState<SavedPlan | null>(null);
+
+  // Load plans from localStorage on mount
+  useEffect(() => {
+    setPlans(getAllPlans());
+  }, []);
+
+  const handlePlanGenerated = (plan: SavedPlan) => {
+    savePlan(plan);
+    setPlans(getAllPlans());
+    setCurrentPlanId(plan.id);
+  };
+
+  const handleSelectPlan = (plan: SavedPlan) => {
+    setCurrentPlanId(plan.id);
+    setLoadedPlan(plan);
+  };
+
+  const handleDeletePlan = (id: string) => {
+    if (confirm('Delete this plan?')) {
+      deletePlan(id);
+      setPlans(getAllPlans());
+      if (currentPlanId === id) {
+        setCurrentPlanId(null);
+        setLoadedPlan(null);
+      }
+    }
+  };
+
+  const handleNewChat = () => {
+    setCurrentPlanId(null);
+    setLoadedPlan(null);
+  };
+
+  return (
+    <div className="flex h-screen overflow-hidden bg-[var(--app-bg)]">
+      <Sidebar
+        plans={plans}
+        currentPlanId={currentPlanId}
+        onSelectPlan={handleSelectPlan}
+        onDeletePlan={handleDeletePlan}
+        onNewChat={handleNewChat}
+      />
+      <div className="flex-1 overflow-hidden">
+        <ChatInterface
+          onPlanGenerated={handlePlanGenerated}
+          loadedPlan={loadedPlan}
+        />
+      </div>
+    </div>
+  );
+}
+
+================================================================================
+
+================================================================================
+FILE: coach-ai-web\components\CalendarView.tsx
+FULL PATH: D:\Janmejay\Python\Task_decomposer\coach-ai-web\components\CalendarView.tsx
+================================================================================
+// components/CalendarView.tsx
+'use client';
+
+import { useState } from 'react';
+import { ScheduleDay } from '@/types';
+import { format, parseISO, isToday, isPast, isFuture } from 'date-fns';
+import { Calendar, Clock, CheckCircle2, Play, Pause, RotateCcw, TrendingUp, Target } from 'lucide-react';
+
+interface CalendarViewProps {
+  schedule: ScheduleDay[];
+}
+
+export default function CalendarView({ schedule }: CalendarViewProps) {
+  const [completedTasks, setCompletedTasks] = useState<Set<string>>(new Set());
+  const [selectedDay, setSelectedDay] = useState<string | null>(null);
+
+  const toggleTaskCompletion = (dayDate: string, stepNumber: number) => {
+    const taskId = `${dayDate}-${stepNumber}`;
+    setCompletedTasks(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(taskId)) {
+        newSet.delete(taskId);
+      } else {
+        newSet.add(taskId);
+      }
+      return newSet;
+    });
+  };
+
+  const getTotalTasks = () => schedule.reduce((sum, day) => sum + day.tasks.length, 0);
+  const getCompletedTasks = () => completedTasks.size;
+  const getProgressPercentage = () => (getCompletedTasks() / getTotalTasks()) * 100;
+
+  return (
+    <div className="space-y-6">
+      {/* Header with Progress */}
+      <div className="glass-strong rounded-2xl p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center">
+              <Calendar className="w-7 h-7 text-white" />
+            </div>
+            <div>
+              <h3 className="text-xl font-bold text-[var(--text)]">Your Daily Schedule</h3>
+              <p className="text-sm text-[var(--muted)]">Track your progress and stay on target</p>
+            </div>
+          </div>
+          <div className="text-right">
+            <div className="text-2xl font-bold text-[var(--accent)]">{Math.round(getProgressPercentage())}%</div>
+            <div className="text-xs text-[var(--muted)]">Complete</div>
+          </div>
+        </div>
+
+        {/* Progress Bar */}
+        <div className="mb-4">
+          <div className="flex justify-between text-sm text-[var(--muted)] mb-2">
+            <span>Overall Progress</span>
+            <span>{getCompletedTasks()} of {getTotalTasks()} tasks</span>
+          </div>
+          <div className="w-full bg-[var(--glass)] rounded-full h-3 overflow-hidden">
+            <div 
+              className="h-full bg-gradient-to-r from-blue-500 to-indigo-600 rounded-full transition-all duration-500 ease-out"
+              style={{ width: `${getProgressPercentage()}%` }}
+            />
+          </div>
+        </div>
+
+        {/* Stats */}
+        <div className="grid grid-cols-3 gap-4">
+          <div className="text-center">
+            <div className="flex items-center justify-center gap-1 mb-1">
+              <Target className="w-4 h-4 text-blue-500" />
+              <span className="text-sm font-semibold text-[var(--text)]">{schedule.length}</span>
+            </div>
+            <div className="text-xs text-[var(--muted)]">Days</div>
+          </div>
+          <div className="text-center">
+            <div className="flex items-center justify-center gap-1 mb-1">
+              <TrendingUp className="w-4 h-4 text-green-500" />
+              <span className="text-sm font-semibold text-[var(--text)]">{getTotalTasks()}</span>
+            </div>
+            <div className="text-xs text-[var(--muted)]">Total Tasks</div>
+          </div>
+          <div className="text-center">
+            <div className="flex items-center justify-center gap-1 mb-1">
+              <CheckCircle2 className="w-4 h-4 text-green-500" />
+              <span className="text-sm font-semibold text-[var(--text)]">{getCompletedTasks()}</span>
+            </div>
+            <div className="text-xs text-[var(--muted)]">Completed</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Schedule Days */}
+      <div className="space-y-4">
+        {schedule.map((day) => {
+          const date = parseISO(day.date);
+          const totalMinutes = day.tasks.reduce((sum, task) => sum + task.minutes, 0);
+          const isTodayDate = isToday(date);
+          const isPastDate = isPast(date) && !isTodayDate;
+          const isFutureDate = isFuture(date);
+          const isExpanded = selectedDay === day.date;
+
+          return (
+            <div
+              key={day.date}
+              className={`glass rounded-2xl overflow-hidden transition-all duration-300 ${
+                isTodayDate ? 'ring-2 ring-blue-500/50 bg-blue-500/5' : ''
+              }`}
+            >
+              {/* Date Header */}
+              <div className="p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                      isTodayDate 
+                        ? 'bg-gradient-to-br from-blue-500 to-indigo-600' 
+                        : isPastDate 
+                        ? 'bg-gradient-to-br from-gray-400 to-gray-500'
+                        : 'bg-gradient-to-br from-green-500 to-emerald-500'
+                    }`}>
+                      <Calendar className="w-5 h-5 text-white" />
+                    </div>
+                  <div>
+                      <div className="flex items-center gap-2">
+                        <h4 className="text-lg font-bold text-[var(--text)]">
+                          {format(date, 'EEEE, MMMM d')}
+                        </h4>
+                        {isTodayDate && (
+                          <span className="px-2 py-1 bg-blue-500/20 text-blue-600 text-xs font-semibold rounded-full">
+                            Today
+                          </span>
+                        )}
+                    </div>
+                      <div className="text-sm text-[var(--muted)]">
+                        {day.tasks.length} task{day.tasks.length !== 1 ? 's' : ''} • {totalMinutes} min
+                  </div>
+                </div>
+                  </div>
+                  <button
+                    onClick={() => setSelectedDay(isExpanded ? null : day.date)}
+                    className="p-2 rounded-lg bg-[var(--glass)] hover:bg-[var(--hover)] transition-all duration-300"
+                  >
+                    <div className={`w-4 h-4 transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`}>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <polyline points="6,9 12,15 18,9"></polyline>
+                      </svg>
+                    </div>
+                  </button>
+              </div>
+
+              {/* Tasks */}
+                <div className="space-y-3">
+                  {day.tasks.map((task) => {
+                    const taskId = `${day.date}-${task.step_number}`;
+                    const isCompleted = completedTasks.has(taskId);
+                    
+                    return (
+                      <div
+                        key={task.step_number}
+                        className={`glass rounded-xl p-4 transition-all duration-300 ${
+                          isCompleted ? 'ring-2 ring-green-500/50 bg-green-500/5' : 'hover:bg-[var(--hover)]'
+                        }`}
+                      >
+                        <div className="flex items-center gap-4">
+                          {/* Task Status */}
+                          <button
+                            onClick={() => toggleTaskCompletion(day.date, task.step_number)}
+                            className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-300 ${
+                              isCompleted 
+                                ? 'bg-green-500 text-white' 
+                                : 'bg-[var(--glass)] text-[var(--muted)] hover:bg-[var(--hover)]'
+                            }`}
+                            title={isCompleted ? 'Mark as incomplete' : 'Mark as complete'}
+                          >
+                            {isCompleted ? <CheckCircle2 className="w-5 h-5" /> : <Play className="w-4 h-4" />}
+                          </button>
+
+                          {/* Task Content */}
+                      <div className="flex-1">
+                            <div className="flex items-center gap-3 mb-2">
+                          <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-[var(--accent)]/20 text-[var(--accent)] text-xs font-semibold">
+                            {task.step_number}
+                          </span>
+                              <h5 className={`font-semibold text-[var(--text)] transition-all duration-300 ${
+                                isCompleted ? 'text-green-600 line-through' : ''
+                              }`}>
+                                {task.title}
+                              </h5>
+                            </div>
+                            <div className="flex items-center gap-4 text-sm text-[var(--muted)]">
+                              <div className="flex items-center gap-1">
+                                <Clock className="w-4 h-4" />
+                                <span>{task.minutes} min</span>
+                        </div>
+                              {isCompleted && (
+                                <div className="flex items-center gap-1 text-green-600">
+                                  <CheckCircle2 className="w-4 h-4" />
+                                  <span className="font-medium">Completed</span>
+                      </div>
+                              )}
+                      </div>
+                    </div>
+                  </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+================================================================================
+
+================================================================================
+FILE: coach-ai-web\components\ChatInterface.tsx
+FULL PATH: D:\Janmejay\Python\Task_decomposer\coach-ai-web\components\ChatInterface.tsx
+================================================================================
+// components/ChatInterface.tsx
+'use client';
+
+import { useEffect, useRef, useState } from 'react';
+import { Message, Plan, QAPair, SavedPlan, ScheduleDay } from '@/types';
+import { getClarifyingQuestions, generatePlan, createSchedule } from '@/lib/api';
+import { Send, User, Bot, Copy, ThumbsUp, ThumbsDown, RefreshCw, MoreVertical, Paperclip, Mic, Music, Sparkles, Brain, Zap } from 'lucide-react';
+import PlanTable from './PlanTable';
+import CalendarView from './CalendarView';
+
+type ChatState = 'idle' | 'asking-questions' | 'plan-ready' | 'schedule-params' | 'schedule-ready';
+
+interface Props {
+  onPlanGenerated: (plan: SavedPlan) => void;
+  loadedPlan?: SavedPlan | null;
+}
+
+export default function ChatInterface({ onPlanGenerated, loadedPlan }: Props) {
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [input, setInput] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [state, setState] = useState<ChatState>('idle');
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  const [goal, setGoal] = useState('');
+  const [questions, setQuestions] = useState<string[]>([]);
+  const [qIndex, setQIndex] = useState(0);
+  const [qaPairs, setQaPairs] = useState<QAPair[]>([]);
+  const [plan, setPlan] = useState<Plan | null>(null);
+  const [schedule, setSchedule] = useState<ScheduleDay[] | null>(null);
+
+  // schedule params
+  const [schedStep, setSchedStep] = useState(0);
+  const [startDate, setStartDate] = useState('');
+  const [daysPerWeek, setDaysPerWeek] = useState('');
+  const [minutesPerDay, setMinutesPerDay] = useState('');
+
+  const endRef = useRef<HTMLDivElement>(null);
+  const taRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, isLoading]);
+
+  useEffect(() => {
+    if (taRef.current) {
+      taRef.current.style.height = '0px';
+      taRef.current.style.height = Math.min(taRef.current.scrollHeight, 160) + 'px';
+    }
+  }, [input]);
+
+  useEffect(() => {
+    if (!loadedPlan) return;
+    setMessages([{
+      id: Date.now().toString(),
+      role: 'assistant',
+      content: `Here's your saved plan for: "${loadedPlan.goal}"`,
+      timestamp: new Date(),
+    }]);
+    setGoal(loadedPlan.goal);
+    setQaPairs(loadedPlan.qa_pairs);
+    setPlan(loadedPlan.plan);
+    setSchedule(loadedPlan.schedule || null);
+    setState(loadedPlan.schedule ? 'schedule-ready' : 'plan-ready');
+  }, [loadedPlan]);
+
+  const addMsg = (role: 'user' | 'assistant', content: string) =>
+    setMessages((m) => [...m, { id: Date.now().toString() + Math.random(), role, content, timestamp: new Date() }]);
+
+  const handleCopy = async (content: string, messageId: string) => {
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopiedId(messageId);
+      setTimeout(() => setCopiedId(null), 2000);
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    }
+  };
+
+  const send = async () => {
+    if (!input.trim() || isLoading) return;
+    const text = input.trim();
+    setInput('');
+    addMsg('user', text);
+    setIsLoading(true);
+
+    try {
+      if (state === 'idle') {
+        setGoal(text);
+        const qs = await getClarifyingQuestions(text);
+        setQuestions(qs);
+        setQIndex(0);
+        setState('asking-questions');
+        addMsg('assistant', qs[0]);
+
+      } else if (state === 'asking-questions') {
+        const currentQ = questions[qIndex];
+        const nextQA = [...qaPairs, { question: currentQ, answer: text }];
+        setQaPairs(nextQA);
+
+        if (qIndex < questions.length - 1) {
+          setQIndex(qIndex + 1);
+          addMsg('assistant', questions[qIndex + 1]);
+        } else {
+          addMsg('assistant', '🎯 Generating your personalized plan…');
+          const p = await generatePlan(goal, nextQA);
+          setPlan(p);
+          setState('plan-ready');
+          addMsg('assistant', '✨ Your plan is ready! Would you like me to create a schedule for you?');
+          onPlanGenerated({
+            id: Date.now().toString(),
+            goal,
+            timestamp: new Date(),
+            qa_pairs: nextQA,
+            plan: p,
+          });
+        }
+
+      } else if (state === 'plan-ready') {
+        if (text.toLowerCase().includes('yes') || text.toLowerCase().includes('schedule')) {
+          setState('schedule-params');
+          setSchedStep(0);
+          const today = new Date().toISOString().split('T')[0];
+          addMsg('assistant', `📅 When would you like to start? (YYYY-MM-DD, e.g., ${today})`);
+        } else {
+          addMsg('assistant', 'Type a new goal to start another plan, or reply "yes" to build a schedule.');
+        }
+
+      } else if (state === 'schedule-params') {
+        if (schedStep === 0) {
+          setStartDate(text);
+          setSchedStep(1);
+          addMsg('assistant', '📆 How many days per week can you work on this? (1-7)');
+        } else if (schedStep === 1) {
+          setDaysPerWeek(text);
+          setSchedStep(2);
+          addMsg('assistant', '⏱️ How many minutes per day can you dedicate? (e.g., 60)');
+        } else {
+          setMinutesPerDay(text);
+          addMsg('assistant', '📋 Creating your personalized schedule…');
+          const sched = await createSchedule(
+            plan!.steps,
+            startDate || new Date().toISOString().split('T')[0],
+            parseInt(daysPerWeek || '5', 10),
+            parseInt(text || '60', 10)
+          );
+          setSchedule(sched);
+          setState('schedule-ready');
+          addMsg('assistant', '✅ Your schedule is ready! See below for your day-by-day plan.');
+          onPlanGenerated({
+            id: Date.now().toString(),
+            goal,
+            timestamp: new Date(),
+            qa_pairs: qaPairs,
+            plan: plan!,
+            schedule: sched,
+          });
+        }
+      }
+    } catch (e) {
+      console.error(e);
+      addMsg('assistant', '❌ Sorry, something went wrong. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const onKey = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+  };
+
+  return (
+    <main className="flex-1 h-full flex flex-col relative">
+      {/* Background Pattern */}
+      <div className="absolute inset-0 opacity-5">
+        <div className="absolute inset-0" style={{
+          backgroundImage: `radial-gradient(circle at 25% 25%, #667eea 0%, transparent 50%), 
+                           radial-gradient(circle at 75% 75%, #764ba2 0%, transparent 50%)`,
+        }} />
+      </div>
+
+      {/* Minimalistic Header */}
+      <div className="glass border-b border-[var(--border)] p-4">
+        <div className="max-w-4xl mx-auto flex items-center gap-3">
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[var(--accent)] to-purple-600 flex items-center justify-center">
+            <Brain className="w-5 h-5 text-white" />
+          </div>
+          <div>
+            <h1 className="text-lg font-semibold text-[var(--text)]">CoachAI</h1>
+          </div>
+        </div>
+      </div>
+
+      {/* Messages */}
+      <div className="flex-1 overflow-y-auto relative">
+        <div className="max-w-4xl mx-auto px-4 py-6">
+          {messages.length === 0 && (
+            <div className="flex items-center justify-center min-h-[60vh]">
+              <div className="text-center glass rounded-xl p-6 max-w-sm">
+                <div className="w-12 h-12 mx-auto mb-3 rounded-lg bg-gradient-to-br from-[var(--accent)] to-purple-600 flex items-center justify-center">
+                  <Sparkles className="w-6 h-6 text-white" />
+                </div>
+                <h1 className="text-xl font-semibold mb-2 text-[var(--text)]">What's your goal?</h1>
+                <p className="text-sm text-[var(--muted)] mb-4">
+                  Tell me what you want to achieve and I'll create a personalized plan.
+                </p>
+                <div className="flex flex-wrap gap-2 justify-center">
+                  {['Learn a skill', 'Start business', 'Get fit', 'Write book'].map((suggestion) => (
+                    <button
+                      key={suggestion}
+                      onClick={() => setInput(suggestion)}
+                      className="px-3 py-1.5 text-xs glass rounded-lg text-[var(--text)] hover:bg-[var(--hover)] transition-all duration-300"
+                    >
+                      {suggestion}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {messages.map((m) => (
+            <div key={m.id} className={`mb-6 ${m.role === 'user' ? 'message-user' : 'message-assistant'}`}>
+              {m.role === 'user' ? (
+                /* User Message - Right Aligned */
+                <div className="flex justify-end">
+                  <div className="max-w-[80%] relative">
+                    <div className="glass rounded-xl px-4 py-3 text-white" style={{ background: 'var(--user-bubble)' }}>
+                      <p className="leading-relaxed">{m.content}</p>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                /* Assistant Message - Left Aligned */
+                <div className="flex justify-start">
+                  <div className="max-w-[85%] relative">
+                    <div className="glass rounded-xl px-4 py-3 text-[var(--text)]">
+                      <div className="flex items-center gap-2 mb-2">
+                        <div className="w-5 h-5 rounded-lg bg-gradient-to-br from-[var(--accent)] to-purple-600 flex items-center justify-center">
+                          <Bot className="w-3 h-3 text-white" />
+                        </div>
+                        <div className="ai-indicator">
+                          <span>CoachAI</span>
+                        </div>
+                        <button
+                          onClick={() => handleCopy(m.content, m.id)}
+                          className="p-1 rounded-lg hover:bg-[var(--hover)] transition-colors ml-auto"
+                          title="Copy message"
+                        >
+                          <Copy className="w-3 h-3 text-[var(--muted)]" />
+                        </button>
+                      </div>
+                      <p className="leading-relaxed text-sm">{m.content}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+
+          {/* Plan Display */}
+          {plan && (
+            <div className="mb-6 message-in">
+              <div className="glass rounded-xl p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center">
+                    <Zap className="w-4 h-4 text-white" />
+                  </div>
+                  <h3 className="text-base font-semibold text-[var(--text)]">Your Plan</h3>
+                </div>
+                <PlanTable plan={plan} />
+              </div>
+            </div>
+          )}
+
+          {/* Schedule Display */}
+          {schedule && (
+            <div className="mb-6 message-in">
+              <div className="glass rounded-xl p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center">
+                    <Sparkles className="w-4 h-4 text-white" />
+                  </div>
+                  <h3 className="text-base font-semibold text-[var(--text)]">Your Schedule</h3>
+                </div>
+                <CalendarView schedule={schedule} />
+              </div>
+            </div>
+          )}
+
+          {/* Loading Indicator */}
+          {isLoading && (
+            <div className="mb-6 message-in">
+              <div className="flex justify-start">
+                <div className="glass rounded-xl px-4 py-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-[var(--accent)] to-purple-600 flex items-center justify-center">
+                      <Bot className="w-4 h-4 text-white" />
+                    </div>
+                    <div className="flex items-center gap-2">
+                <div className="flex gap-1">
+                        <div className="w-1.5 h-1.5 bg-[var(--accent)] rounded-full typing-dots"></div>
+                        <div className="w-1.5 h-1.5 bg-[var(--accent)] rounded-full typing-dots" style={{ animationDelay: '0.2s' }}></div>
+                        <div className="w-1.5 h-1.5 bg-[var(--accent)] rounded-full typing-dots" style={{ animationDelay: '0.4s' }}></div>
+                      </div>
+                      <span className="text-xs text-[var(--muted)]">Thinking...</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div ref={endRef} />
+        </div>
+      </div>
+
+      {/* Input */}
+      <div className="sticky bottom-0 glass border-t border-[var(--border)] p-4">
+        <div className="max-w-4xl mx-auto">
+          <div className="flex items-end gap-3 glass rounded-xl px-4 py-3">
+            <div className="flex-1">
+            <textarea
+              ref={taRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={onKey}
+                placeholder="What's your goal?"
+              rows={1}
+              disabled={isLoading}
+                className="w-full resize-none bg-transparent text-sm text-[var(--text)] placeholder-[var(--muted)] focus:outline-none max-h-32 leading-5 disabled:opacity-50"
+              />
+              </div>
+            <button
+              onClick={send}
+              disabled={!input.trim() || isLoading}
+              className={`px-4 py-2 rounded-lg font-medium transition-all duration-300 flex items-center gap-2 ${
+                input.trim() && !isLoading
+                  ? 'btn-primary'
+                  : 'bg-[var(--muted)]/20 text-[var(--muted)] cursor-not-allowed'
+              }`}
+            >
+              <Send className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      </div>
+    </main>
+  );
+}
+
+================================================================================
+
+================================================================================
+FILE: coach-ai-web\components\PlanTable.tsx
+FULL PATH: D:\Janmejay\Python\Task_decomposer\coach-ai-web\components\PlanTable.tsx
+================================================================================
+// components/PlanTable.tsx
+'use client';
+
+import { useState } from 'react';
+import { Plan } from '@/types';
+import { Clock, CheckCircle2, Lightbulb, ExternalLink, Target, TrendingUp, Award, Play, Pause, RotateCcw } from 'lucide-react';
+
+interface PlanTableProps {
+  plan: Plan;
+}
+
+export default function PlanTable({ plan }: PlanTableProps) {
+  const totalMinutes = plan.steps.reduce((sum, step) => sum + step.time_minutes, 0);
+  const totalHours = (totalMinutes / 60).toFixed(1);
+  const [completedSteps, setCompletedSteps] = useState<Set<number>>(new Set());
+  const [expandedStep, setExpandedStep] = useState<number | null>(null);
+
+  const toggleStepCompletion = (stepNumber: number) => {
+    setCompletedSteps(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(stepNumber)) {
+        newSet.delete(stepNumber);
+      } else {
+        newSet.add(stepNumber);
+      }
+      return newSet;
+    });
+  };
+
+  const progressPercentage = (completedSteps.size / plan.steps.length) * 100;
+
+  return (
+    <div className="space-y-6">
+      {/* Enhanced Header */}
+      <div className="glass-strong rounded-2xl p-6 border border-[var(--accent)]/20">
+        <div className="flex items-start justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[var(--accent)] to-purple-600 flex items-center justify-center">
+              <Target className="w-7 h-7 text-white" />
+            </div>
+            <div>
+              <h3 className="text-xl font-bold text-[var(--text)] mb-1">
+                {plan.goal}
+        </h3>
+              <p className="text-sm text-[var(--muted)]">Your personalized achievement plan</p>
+            </div>
+          </div>
+          <div className="text-right">
+            <div className="text-2xl font-bold text-[var(--accent)]">{Math.round(progressPercentage)}%</div>
+            <div className="text-xs text-[var(--muted)]">Complete</div>
+          </div>
+        </div>
+
+        {/* Progress Bar */}
+        <div className="mb-4">
+          <div className="flex justify-between text-sm text-[var(--muted)] mb-2">
+            <span>Progress</span>
+            <span>{completedSteps.size} of {plan.steps.length} steps</span>
+          </div>
+          <div className="w-full bg-[var(--glass)] rounded-full h-3 overflow-hidden">
+            <div 
+              className="h-full bg-gradient-to-r from-[var(--accent)] to-purple-600 rounded-full transition-all duration-500 ease-out"
+              style={{ width: `${progressPercentage}%` }}
+            />
+          </div>
+        </div>
+
+        {/* Stats */}
+        <div className="grid grid-cols-3 gap-4">
+          <div className="text-center">
+            <div className="flex items-center justify-center gap-1 mb-1">
+              <Clock className="w-4 h-4 text-[var(--accent)]" />
+              <span className="text-sm font-semibold text-[var(--text)]">{totalHours}h</span>
+            </div>
+            <div className="text-xs text-[var(--muted)]">Total Time</div>
+          </div>
+          <div className="text-center">
+            <div className="flex items-center justify-center gap-1 mb-1">
+              <TrendingUp className="w-4 h-4 text-green-500" />
+              <span className="text-sm font-semibold text-[var(--text)]">{plan.steps.length}</span>
+            </div>
+            <div className="text-xs text-[var(--muted)]">Steps</div>
+          </div>
+          <div className="text-center">
+            <div className="flex items-center justify-center gap-1 mb-1">
+              <Award className="w-4 h-4 text-yellow-500" />
+              <span className="text-sm font-semibold text-[var(--text)]">{plan.total_time}</span>
+            </div>
+            <div className="text-xs text-[var(--muted)]">Timeline</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Interactive Steps */}
+      <div className="space-y-3">
+        {plan.steps.map((step) => {
+          const isCompleted = completedSteps.has(step.step_number);
+          const isExpanded = expandedStep === step.step_number;
+          
+          return (
+            <div
+              key={step.step_number}
+              className={`glass rounded-2xl overflow-hidden transition-all duration-300 ${
+                isCompleted ? 'ring-2 ring-green-500/50 bg-green-500/5' : 'hover:bg-[var(--hover)]'
+              }`}
+            >
+              <div className="p-6">
+                <div className="flex items-start gap-4">
+                  {/* Step Number & Completion */}
+                  <div className="flex flex-col items-center gap-2">
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm transition-all duration-300 ${
+                      isCompleted 
+                        ? 'bg-green-500 text-white' 
+                        : 'bg-gradient-to-br from-[var(--accent)] to-purple-600 text-white'
+                    }`}>
+                      {isCompleted ? <CheckCircle2 className="w-5 h-5" /> : step.step_number}
+                    </div>
+                    <button
+                      onClick={() => toggleStepCompletion(step.step_number)}
+                      className={`p-2 rounded-lg transition-all duration-300 ${
+                        isCompleted 
+                          ? 'bg-green-500/20 text-green-600 hover:bg-green-500/30' 
+                          : 'bg-[var(--glass)] text-[var(--muted)] hover:bg-[var(--hover)]'
+                      }`}
+                      title={isCompleted ? 'Mark as incomplete' : 'Mark as complete'}
+                    >
+                      {isCompleted ? <RotateCcw className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4" />}
+                    </button>
+                  </div>
+
+                  {/* Step Content */}
+                  <div className="flex-1">
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="flex-1">
+                        <h4 className={`text-lg font-semibold mb-2 transition-all duration-300 ${
+                          isCompleted ? 'text-green-600 line-through' : 'text-[var(--text)]'
+                        }`}>
+                          {step.do}
+                        </h4>
+                        <div className="flex items-center gap-4 text-sm text-[var(--muted)]">
+          <div className="flex items-center gap-1">
+            <Clock className="w-4 h-4" />
+                            <span>{step.time_minutes} min</span>
+                          </div>
+                          {step.resources.length > 0 && (
+                            <div className="flex items-center gap-1">
+                              <ExternalLink className="w-4 h-4" />
+                              <span>{step.resources.length} resource{step.resources.length !== 1 ? 's' : ''}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => setExpandedStep(isExpanded ? null : step.step_number)}
+                        className="p-2 rounded-lg bg-[var(--glass)] hover:bg-[var(--hover)] transition-all duration-300"
+                      >
+                        <div className={`w-4 h-4 transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`}>
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <polyline points="6,9 12,15 18,9"></polyline>
+                          </svg>
+                        </div>
+                      </button>
+                    </div>
+
+                    {/* Expanded Details */}
+                    {isExpanded && (
+                      <div className="space-y-4 pt-4 border-t border-[var(--border)] animate-fadeIn">
+                        <div className="grid md:grid-cols-2 gap-4">
+                          <div className="glass rounded-xl p-4">
+                            <div className="flex items-center gap-2 mb-2">
+                              <Lightbulb className="w-5 h-5 text-yellow-500" />
+                              <h5 className="font-semibold text-[var(--text)]">Why This Step?</h5>
+                            </div>
+                            <p className="text-sm text-[var(--muted)] leading-relaxed">{step.why}</p>
+                          </div>
+                          <div className="glass rounded-xl p-4">
+                            <div className="flex items-center gap-2 mb-2">
+                              <CheckCircle2 className="w-5 h-5 text-green-500" />
+                              <h5 className="font-semibold text-[var(--text)]">How to Verify</h5>
+          </div>
+                            <p className="text-sm text-[var(--muted)] leading-relaxed">{step.check}</p>
+        </div>
+      </div>
+
+                        {/* Resources */}
+                  {step.resources.length > 0 && (
+                          <div className="glass rounded-xl p-4">
+                            <h5 className="font-semibold text-[var(--text)] mb-3 flex items-center gap-2">
+                              <ExternalLink className="w-5 h-5 text-[var(--accent)]" />
+                              Resources & Links
+                            </h5>
+                            <div className="flex flex-wrap gap-2">
+                      {step.resources.map((resource, idx) => (
+                                <a
+                          key={idx}
+                                  href="#"
+                                  className="inline-flex items-center gap-2 px-3 py-2 bg-[var(--accent)]/10 text-[var(--accent)] rounded-lg hover:bg-[var(--accent)]/20 transition-all duration-300 text-sm font-medium"
+                        >
+                                  <ExternalLink className="w-4 h-4" />
+                          {resource}
+                                </a>
+                      ))}
+                            </div>
+                          </div>
+                        )}
+                    </div>
+                  )}
+                  </div>
+                </div>
+                  </div>
+                  </div>
+          );
+        })}
+      </div>
+
+      {/* Enhanced Tips */}
+      {plan.tips.length > 0 && (
+        <div className="glass-strong rounded-2xl p-6 border border-yellow-500/20">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-yellow-500 to-orange-500 flex items-center justify-center">
+              <Lightbulb className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <h4 className="text-lg font-bold text-[var(--text)]">Coach's Pro Tips</h4>
+              <p className="text-sm text-[var(--muted)]">Expert advice to maximize your success</p>
+            </div>
+          </div>
+          <div className="grid gap-3">
+            {plan.tips.map((tip, idx) => (
+              <div key={idx} className="flex items-start gap-3 p-3 glass rounded-xl">
+                <div className="w-6 h-6 rounded-full bg-yellow-500/20 flex items-center justify-center shrink-0 mt-0.5">
+                  <span className="text-yellow-600 font-bold text-sm">{idx + 1}</span>
+                </div>
+                <p className="text-sm text-[var(--text)] leading-relaxed">{tip}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+================================================================================
+
+================================================================================
+FILE: coach-ai-web\components\Sidebar.tsx
+FULL PATH: D:\Janmejay\Python\Task_decomposer\coach-ai-web\components\Sidebar.tsx
+================================================================================
+// components/Sidebar.tsx
+'use client';
+
+import { SavedPlan } from '@/types';
+import { format } from 'date-fns';
+import { Plus, MessageSquare, Trash2, Sparkles, Brain, Zap } from 'lucide-react';
+
+interface SidebarProps {
+  plans: SavedPlan[];
+  currentPlanId: string | null;
+  onSelectPlan: (plan: SavedPlan) => void;
+  onDeletePlan: (id: string) => void;
+  onNewChat: () => void;
+}
+
+export default function Sidebar({
+  plans,
+  currentPlanId,
+  onSelectPlan,
+  onDeletePlan,
+  onNewChat,
+}: SidebarProps) {
+  return (
+    <aside className="w-72 h-screen shrink-0 glass-strong border-r border-[var(--border)] flex flex-col relative overflow-hidden">
+      {/* Background Pattern */}
+      <div className="absolute inset-0 opacity-5">
+        <div className="absolute inset-0" style={{
+          backgroundImage: `radial-gradient(circle at 20% 20%, #667eea 0%, transparent 50%), 
+                           radial-gradient(circle at 80% 80%, #764ba2 0%, transparent 50%)`,
+        }} />
+      </div>
+
+      {/* Logo Section */}
+      <div className="p-4 border-b border-[var(--border)] relative">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[var(--accent)] to-purple-600 flex items-center justify-center">
+            <Brain className="w-5 h-5 text-white" />
+          </div>
+          <h1 className="text-lg font-semibold text-[var(--text)]">CoachAI</h1>
+        </div>
+      </div>
+
+      {/* New Goal Button */}
+      <div className="p-3 border-b border-[var(--border)] relative">
+        <button
+          onClick={onNewChat}
+          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-[var(--hover)] text-sm font-medium transition-all duration-300 text-[var(--text)]"
+        >
+          <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-[var(--accent)] to-purple-600 flex items-center justify-center">
+            <Plus className="w-4 h-4 text-white" />
+          </div>
+          <span>New Goal</span>
+        </button>
+      </div>
+
+
+      {/* Plans Section */}
+      <div className="flex-1 overflow-y-auto p-3 relative">
+        <h3 className="text-xs font-medium text-[var(--muted)] uppercase tracking-wide mb-3 px-2">Goals</h3>
+        
+        {plans.length === 0 ? (
+          <div className="text-center py-8">
+            <div className="w-12 h-12 mx-auto mb-3 rounded-lg bg-gradient-to-br from-[var(--accent)]/20 to-purple-600/20 flex items-center justify-center">
+              <Sparkles className="w-6 h-6 text-[var(--accent)]" />
+            </div>
+            <p className="text-sm text-[var(--text)] mb-1">No goals yet</p>
+            <p className="text-xs text-[var(--muted)]">Start your first goal</p>
+          </div>
+        ) : (
+          <ul className="space-y-1">
+            {plans.map((p) => (
+              <li
+                key={p.id}
+                className={`group relative glass rounded-lg cursor-pointer transition-all duration-300 ${
+                  currentPlanId === p.id 
+                    ? 'ring-1 ring-[var(--accent)]/50 bg-[var(--selected)]' 
+                    : 'hover:bg-[var(--hover)]'
+                }`}
+                onClick={() => onSelectPlan(p)}
+                title={p.goal}
+              >
+                <div className="p-3">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-6 h-6 rounded-lg flex items-center justify-center shrink-0 ${
+                      currentPlanId === p.id 
+                        ? 'bg-gradient-to-br from-[var(--accent)] to-purple-600' 
+                        : 'bg-gradient-to-br from-gray-400 to-gray-500'
+                    }`}>
+                      <MessageSquare className="w-3 h-3 text-white" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium text-[var(--text)] truncate">
+                        {p.goal}
+                      </div>
+                      <div className="text-xs text-[var(--muted)]">
+                        {format(p.timestamp, 'MMM d')}
+                      </div>
+                    </div>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onDeletePlan(p.id); }}
+                      className="opacity-0 group-hover:opacity-100 p-1 rounded-lg hover:bg-red-500/10 text-[var(--muted)] hover:text-red-500 transition-all duration-300"
+                      title="Delete goal"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+
+    </aside>
+  );
+}
+
+================================================================================
+
+================================================================================
+FILE: coach-ai-web\lib\api.ts
+FULL PATH: D:\Janmejay\Python\Task_decomposer\coach-ai-web\lib\api.ts
+================================================================================
+import { Plan, QAPair, ScheduleDay, Step } from '@/types';
+
+const API_BASE = 'http://localhost:8000';
+
+export async function getClarifyingQuestions(goal: string): Promise<string[]> {
+  const response = await fetch(`${API_BASE}/api/clarify`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ goal }),
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to get questions');
+  }
+
+  const data = await response.json();
+  return data.questions;
+}
+
+export async function generatePlan(goal: string, qa_pairs: QAPair[]): Promise<Plan> {
+  const response = await fetch(`${API_BASE}/api/plan`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ goal, qa_pairs }),
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to generate plan');
+  }
+
+  return response.json();
+}
+
+export async function createSchedule(
+  steps: Step[],
+  start_date: string,
+  days_per_week: number,
+  minutes_per_day: number
+): Promise<ScheduleDay[]> {
+  const response = await fetch(`${API_BASE}/api/schedule`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ steps, start_date, days_per_week, minutes_per_day }),
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to create schedule');
+  }
+
+  const data = await response.json();
+  return data.schedule;
+}
+
+================================================================================
+
+================================================================================
+FILE: coach-ai-web\lib\storage.ts
+FULL PATH: D:\Janmejay\Python\Task_decomposer\coach-ai-web\lib\storage.ts
+================================================================================
+import { SavedPlan } from '@/types';
+
+const STORAGE_KEY = 'coach_ai_plans';
+
+export function savePlan(plan: SavedPlan): void {
+  const plans = getAllPlans();
+  plans.unshift(plan); // Add to beginning
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(plans));
+}
+
+export function getAllPlans(): SavedPlan[] {
+  if (typeof window === 'undefined') return [];
+  
+  const stored = localStorage.getItem(STORAGE_KEY);
+  if (!stored) return [];
+  
+  try {
+    const plans = JSON.parse(stored);
+    // Convert timestamp strings back to Date objects
+    return plans.map((p: any) => ({
+      ...p,
+      timestamp: new Date(p.timestamp),
+    }));
+  } catch {
+    return [];
+  }
+}
+
+export function getPlanById(id: string): SavedPlan | null {
+  const plans = getAllPlans();
+  return plans.find(p => p.id === id) || null;
+}
+
+export function deletePlan(id: string): void {
+  const plans = getAllPlans().filter(p => p.id !== id);
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(plans));
+}
+
+================================================================================
+
+================================================================================
+FILE: coach-ai-web\types\index.ts
+FULL PATH: D:\Janmejay\Python\Task_decomposer\coach-ai-web\types\index.ts
+================================================================================
+export interface Message {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: Date;
+}
+
+export interface Step {
+  step_number: number;
+  do: string;
+  why: string;
+  check: string;
+  time_minutes: number;
+  resources: string[];
+}
+
+export interface Plan {
+  goal: string;
+  total_time: string;
+  steps: Step[];
+  tips: string[];
+}
+
+export interface QAPair {
+  question: string;
+  answer: string;
+}
+
+export interface SavedPlan {
+  id: string;
+  goal: string;
+  timestamp: Date;
+  qa_pairs: QAPair[];
+  plan: Plan;
+  schedule?: ScheduleDay[];
+}
+
+export interface ScheduleTask {
+  step_number: number;
+  title: string;
+  minutes: number;
+}
+
+export interface ScheduleDay {
+  date: string;
+  tasks: ScheduleTask[];
+}
+
+================================================================================
+
