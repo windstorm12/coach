@@ -14,13 +14,14 @@ interface Props {
 }
 
 // Type for extended plan with optional assessment fields
-interface ExtendedPlan extends Plan {
-  realistic_hours_needed?: number | string;
-  adjustment_explanation?: string;
-  feasibility_ratio?: number | null;
-  timeline_adjusted?: boolean;
-}
-
+  // Type for extended plan with optional assessment fields
+  interface ExtendedPlan extends Omit<Plan, 'feasibility_ratio'> {
+    realistic_hours_needed?: number | string;
+    adjustment_explanation?: string;
+    feasibility_ratio?: number | null;
+    timeline_adjusted?: boolean;
+  }
+  
 export default function ChatInterface({ onPlanGenerated, loadedPlan }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
