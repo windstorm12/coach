@@ -1,6 +1,6 @@
 import { Plan, QAPair } from '@/types';
 
-const API_BASE = 'http://localhost:8000';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 export async function getClarifyingQuestions(goal: string): Promise<string[]> {
   const response = await fetch(`${API_BASE}/api/clarify`, {
