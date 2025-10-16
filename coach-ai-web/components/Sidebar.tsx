@@ -126,7 +126,7 @@ export default function Sidebar({
               lineHeight: 1.5,
             }}
           >
-            No goals yet. Click "New Goal" to get started!
+            No goals yet. Click &quot;New Goal&quot; to get started!
           </p>
         ) : (
           <ul

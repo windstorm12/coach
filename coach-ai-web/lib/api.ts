@@ -1,4 +1,4 @@
-import { Plan, QAPair, Step } from '@/types';
+import { Plan, QAPair } from '@/types';
 
 const API_BASE = 'http://localhost:8000';
 

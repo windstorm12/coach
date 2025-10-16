@@ -9,17 +9,16 @@ interface PlanTableProps {
   plan: Plan;
 }
 
-export default function PlanTable({ plan }: PlanTableProps) {
-  // Helper: format minutes into "Xh Ym" or "Xm"
-  const formatMinutes = (mins: number | undefined) => {
-    const m = Math.max(0, Number(mins || 0));
-    const h = Math.floor(m / 60);
-    const r = m % 60;
-    if (h > 0 && r > 0) return `${h}h ${r}m`;
-    if (h > 0) return `${h}h`;
-    return `${r}m`;
-  };
+// Extended Plan type for timeline assessment fields
+interface ExtendedPlan extends Plan {
+  timeline_adjusted?: boolean;
+  adjustment_explanation?: string;
+  user_requested_hours?: number;
+  realistic_hours_needed?: number | string;
+  realistic_goal_level?: string;
+}
 
+export default function PlanTable({ plan }: PlanTableProps) {
   const [completedSteps, setCompletedSteps] = useState<Set<number>>(new Set());
   const [expandedSteps, setExpandedSteps] = useState<Set<number>>(new Set());
 
@@ -45,11 +44,12 @@ export default function PlanTable({ plan }: PlanTableProps) {
     plan.steps.length > 0 ? (completedSteps.size / plan.steps.length) * 100 : 0;
 
   // Timeline assessment fields (optional in backend)
-  const wasAdjusted = (plan as any).timeline_adjusted;
-  const adjustmentExplanation = (plan as any).adjustment_explanation;
-  const userRequestedHours = (plan as any).user_requested_hours;
-  const realisticHoursNeeded = (plan as any).realistic_hours_needed;
-  const realisticGoalLevel = (plan as any).realistic_goal_level;
+  const extendedPlan = plan as ExtendedPlan;
+  const wasAdjusted = extendedPlan.timeline_adjusted;
+  const adjustmentExplanation = extendedPlan.adjustment_explanation;
+  const userRequestedHours = extendedPlan.user_requested_hours;
+  const realisticHoursNeeded = extendedPlan.realistic_hours_needed;
+  const realisticGoalLevel = extendedPlan.realistic_goal_level;
   const isImpossible = realisticHoursNeeded === 'IMPOSSIBLE';
 
   return (
@@ -138,7 +138,7 @@ export default function PlanTable({ plan }: PlanTableProps) {
         </div>
       )}
       
-      {/* 🆕 GOAL CHANGE WARNING - ADD THIS ENTIRE BLOCK */}
+      {/* GOAL CHANGE WARNING */}
       {plan.original_goal && plan.goal_changed_reason && !isImpossible && (
         <div
           style={{
@@ -343,7 +343,7 @@ export default function PlanTable({ plan }: PlanTableProps) {
             </div>
             <p style={{ margin: '8px 0 0 52px', color: colors.textSecondary, fontSize: 14 }}>
               {isImpossible
-                ? "Since your original goal requires a team, here's what you CAN achieve individually"
+                ? "Since your original goal requires a team, here&apos;s what you CAN achieve individually"
                 : 'Your personalized roadmap to success'}
             </p>
           </div>
@@ -478,7 +478,8 @@ export default function PlanTable({ plan }: PlanTableProps) {
                     </h3>
 
                     <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 12 }}>
-                      {step.resources.length > 0 && (                        <span
+                      {step.resources.length > 0 && (
+                        <span
                           style={{
                             fontSize: 13,
                             color: colors.textSecondary,
